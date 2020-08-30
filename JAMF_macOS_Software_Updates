@@ -1,0 +1,723 @@
+#!/bin/bash
+
+## This script is designed to be called from a JAMF policy scoped to run once a day and ideally
+## scoped to a Smart Group where software updates avaiable are greater than 0.
+## If updates not requiring a restart a found it will call a policy in JAMF to install the softare updates. 
+## This has the added benefit of resetting the machine's SUS to any defined in JAMF network segments. 
+## If updates with restarts are found users are notified what the update is and that it the machine will be
+## rebooted at the end of the update process. Users will then be given the option to reboot their machine or
+## let it reboot automatically after 5 mins. Users can also defer the updates for x number of days before they 
+## are automatically insatlled. It is recommended to also enable a self service policy in conjuction with this one 
+## so users can install updates at a more appropriate time for them.
+
+## Many thanks to the many people at www.jamfnation.com for providing the baisis and inspiration for this script 
+## in partcular Mike Morales (@mm270) and his script found here
+## https://github.com/mm2270/CasperSuiteScripts/blob/master/selectable_SoftwareUpdate.sh
+
+## Define Global Variables and Script Arguments
+UpdateAttemptsFile="/Library/Preferences/YOUR PLIST HERE"
+
+## Parameter 4 passed in from JAMF will set the total amount of update chances we will give the user.
+## If no value is specified it will default to 3.
+TotalAttempts="$4"
+
+## Parameter 5 passed in from JAMF will set the amount of seconds to wait before rebooting the machine to apply the updates. 
+## If no value is specified it will default to 300 seconds or 5 mins.
+Seconds="$5"
+
+## Parameter 6 passed in from JAMF will set the day of the week to start the policy.
+## If no value is specified it will default to any day of the week.
+DayofWeek="$6"
+
+## Clean uo the old counter file if it is still lying around
+if [ -e "/etc/SUScount.txt" ]
+ then
+   rm -f "/etc/SUScount.txt"
+fi
+
+## If the file containing the number of software update attempts does not exist or has a size
+## of zero bytes then set the number of update attempts to zero by writing just a zero to the file
+
+if [ ! -s "$UpdateAttemptsFile" ]
+ then
+   defaults write $UpdateAttemptsFile UpdateCount -int 0
+fi
+
+## Now that we know the update file exits write a true value to the JAMFEnabled key
+## to indicate updates are being installed via a JAMF policy
+
+defaults write $UpdateAttemptsFile JAMFEnabled -bool true
+
+## Write the contents of UpdateAttemptsFile to a variable so it can be manipulated later
+## and written back to the UpdateAttemptsFile based upon user input
+
+UpdateCount=$(defaults read $UpdateAttemptsFile UpdateCount)
+
+## Check the update chances variable passed in
+## Any value other than a number including a null value will result in the the total user chances being set to 3.
+## Any number less than 3 will result in the total number of chances being set to 3.
+## We assign the parameter to a variable first just so we don't have to worry about the logic later if we need to.
+
+if [[ "$TotalAttempts" == *[!0-9]* ]] || [[ "$TotalAttempts" == "" ]]
+then
+echo "No valid deferral count specified. Defaulting to 3 chances."
+TotalAttempts="3"
+elif [[ "$TotalAttempts" -lt "3" ]]
+then
+echo "Deferrals set too low. Setting to 3 user attempts."
+TotalAttempts="3"
+fi
+
+echo "Total chances for user to defer is: $TotalAttempts"
+
+## Check the number of seconds passed in for a reboot delay
+## An if statement checks for non numeric characters or an empty variable. If either of those conditions are true then the  
+## reboot timer will default to 300 seconds or 5 minutes. If less that 120 seconds are enter the timer will be set to 2 minutes
+## to both give the user enough time to quit any applications and for the 1 minute reboot warning to display.
+## We assign the parameter to a variable first just so we don't have to worry about the logic later if we need to.
+
+if [[ "$Seconds" == *[!0-9]* ]] || [[ "$Seconds" == "" ]]
+then
+echo "No valid defer time found. Defaulting to 5 mins."
+Seconds=300
+elif [[ "$Seconds" -le "120" ]]
+then
+echo "Delay timer set to low. Setting to 2 mins."
+Seconds=120
+fi
+
+## Double parens are required when command substitution is performing arithmetic operations.
+
+## Figure out the amount of whole minutes from inputed seconds.
+## This variable will be displayed to the user.
+Minutes=$(($Seconds / 60))
+echo "Machine reboot timer is set to $Minutes minutes."
+
+## Figure out any additional seconds over the total amount of whole minutes
+ExtraSeconds=$(($Seconds % 60))
+
+## Subtract the additional seconds from the total amount of seconds which will give us 
+## a timer/counter variable in whole minutes.
+Counter=$(($Seconds-$ExtraSeconds))
+
+## Check the day of the week passed in
+## We translate the day to lowercase then an if statement checks for an actually weekday. 
+## If there is a match we set the policy to begin on that day. If there is no match the policy can run
+## whenever there are updates.
+
+DayofWeek=$(echo "$DayofWeek" | tr '[:upper:]' '[:lower:]')
+
+if [[ "$DayofWeek" =~ sunday|monday|tuesday|wednesday|thursday|friday|saturday ]] 
+then
+  if [[ $(defaults read $UpdateAttemptsFile PolicyStartDate 2>/dev/null) != "$DayofWeek" ]]
+	#if [[ $(defaults read $UpdateAttemptsFile PolicyStartDate -string $DayofWeek 2>/dev/null) != "$DayofWeek" ]]
+    then
+       ## This accounts for organizations that decided to change the day they want the policy to start executing on if it has 
+       ## already been run. If they change the execution day to another day of the week the policy will stop running until that day passes.
+       ## If they change the day of execution to the current day of the week the policy will still run based on other logic.
+       defaults write $UpdateAttemptsFile PolicyRunning -bool false 
+       echo "New start date does not match current start date. Setting policy enabled to false and resetting counter."
+       defaults write $UpdateAttemptsFile PolicyStartDate -string $DayofWeek
+       defaults write $UpdateAttemptsFile UpdateCount -int 0
+    fi
+    echo "Start Day is set to: $DayofWeek"
+else
+echo "No valid start day found. Defaulting policy to always on."
+defaults write $UpdateAttemptsFile PolicyRunning -bool true
+fi
+
+
+## Variable for currently logged in user
+loggedInUser=""
+
+##Update deferral variables
+## Final Chance is always 1 more then TotalAttempts can code this to just add 1 to 
+## a blank FinalChance Variable which will require 1 less variable to update
+FinalChance=$(($TotalAttempts+1))
+UpdateCount="0"
+UpdateAttempts="0"
+UpdateChancesLeft="0"
+
+## Determine if a restart is required by updates. 0 for no and 1 for yes
+RestartReq="0"
+
+#Variable to check to see if we should halt or reboot the machine
+SWU_OUTPUT=""
+
+##Define JAMF Variables
+JAMFHelperPath="/Library/Application Support/JAMF/bin/jamfHelper.app/Contents/MacOS/jamfHelper"
+JAMFHelperTitle="Electric Software Update"
+JAMFHelperHeading="Software Updates Available"
+###JAMFHelperDescription not currently used but can be substituted for a generic message as necessary
+JAMFHelperDescription="Please save all your work, quit open programs, and make sure your computer is plugged in.
+
+This process will take approximately 5-10 minutes.
+
+Once completed your computer will reboot and begin the update."
+
+## Get the current logged in user
+loggedInUser=$(ls -l /dev/console | /usr/bin/awk '{ print $3 }')
+
+## Find out if the current user has a branded self service icon if not use a default one for JAMF Helper windows. 
+if [ -e "/Users/$loggedInUser/Library/Application Support/com.jamfsoftware.selfservice.mac/Documents/Images/brandingimage.png" ]
+   then
+      JAMFHelperIcon="/Users/$loggedInUser/Library/Application Support/com.jamfsoftware.selfservice.mac/Documents/Images/brandingimage.png"
+   else
+      JAMFHelperIcon="/System/Library/CoreServices/CoreTypes.bundle/Contents/Resources/FinderIcon.icns"
+ fi
+
+## JAMF Binary Check
+##
+## This if statement is designed to check for the location of the jamf binary in multiple places 
+## due to changes in OSX associated with JAMF's upgrade to version 9.81
+## References to the JAMF Binary must be changed to "$jamfBinary"
+##
+if [ -e /usr/local/jamf/bin/jamf ]
+   then
+      # JAMF Binary found at 9.81 or later location
+      echo "JAMF Binary found at 9.81 or later location"
+      jamfBinary="/usr/local/jamf/bin/jamf"
+      #
+   elif [ -e /usr/local/bin/jamf ]
+   then
+      # Alias to the JAMF Binary found
+      echo "Alias to the JAMF Binary found"
+      jamfBinary="/usr/local/bin/jamf"
+      #
+   else
+   echo "JAMF Binary not found"
+fi
+## End JAMF Check if statement
+
+## Write the contents of UpdateAttemptsFile to a variable so it can be manipulated later
+## and written back to the UpdateAttemptsFile based upon user input
+
+UpdateCount=$(defaults read $UpdateAttemptsFile UpdateCount)
+
+##### Function to run if there are no updates that need to be restarted
+
+installUpdatesNoRestart()
+{
+"$jamfBinary" policy -trigger runsoftwareupdate
+## Write Zero to the updates attempt file to reset the counter
+defaults write $UpdateAttemptsFile UpdateCount -int 0
+## Reset the policy enabled status
+defaults write $UpdateAttemptsFile PolicyRunning -bool false
+}
+
+#### Function to run if there are updates that need to be restarted
+
+updatesWithRestart()
+{
+
+echo "Current user is: $loggedInUser"
+
+if [ "$loggedInUser" != "root" ]
+then
+   UpdateChancesLeft=$((TotalAttempts - UpdateCount))
+        if [ $UpdateChancesLeft = 0 ]
+        then
+           installMSG="Critical software updates are about to run.
+Please do not shut down your Mac or put it to sleep.
+           
+IMPORTANT:
+We recommend saving any important documents now.
+Your Mac will reboot in order to complete the update."
+           
+           "$JAMFHelperPath" -windowType utility -title "$JAMFHelperTitle" \
+           -icon "$JAMFHelperIcon" -iconSize 128 -heading "Software Updates Installing" -alignHeading center -description "$installMSG" \
+           -alignDescription center &
+           echo "Forced installation of software updates happening."
+           sleep 10
+           installUpdates    
+        else
+           UpdateAttempts=$((UpdateCount + 1))
+           InformativeTextMsg="The following is waiting to be installed and requires a restart of your computer:
+
+$UpdatesReqRestart
+
+This is user installation attempt $UpdateAttempts of $TotalAttempts.
+           
+Attempt $FinalChance will install updates automatically and your machine will restart.
+
+**Updates may also be run from Electric Self Service.**"
+
+           UserResponse=$("$JAMFHelperPath" -windowType utility -title "$JAMFHelperTitle" \
+               -icon "$JAMFHelperIcon" -iconSize 128 -heading "$JAMFHelperHeading" -alignHeading center -description "$InformativeTextMsg" \
+               -alignDescription center -button1 "Install" -button2 "Defer" -cancelButton 2 )
+                ## This first condition accounts for the user selecting cancel or simply closing the window
+                if [ $UserResponse == 2 ] || [ $UserResponse == 239 ]
+                then
+                   defaults write $UpdateAttemptsFile UpdateCount -int $UpdateAttempts
+                   echo "User choose to defer"
+                   echo "This was user installation attempt $UpdateAttempts of $TotalAttempts."
+                   exit 0
+                elif [ $UserResponse == 0 ]
+                then
+                  echo "User choose to install Software Updates."
+                  # We capture the JAMF Helper's PID so we can pass it to the disown command which removes it from
+                  # the shell's list of watched jobs. The prevents debug messages from being generated when killing the process.
+                  ## Disown works more reliably then using "wait" for the shell to release the job and piping the output to /dev/null
+                  installUpdates
+                fi
+         fi
+else
+## Write Zero to the updates attempt file to reset the counter
+defaults write $UpdateAttemptsFile UpdateCount -int 0
+## Reset the policy enabled status
+defaults write $UpdateAttemptsFile PolicyRunning -bool false
+## No user logged in go ahead an install
+"$jamfBinary" policy -trigger runsoftwareupdate
+fi
+
+}
+
+##	Function to install selected updates and display user prompts
+installUpdates ()
+{
+
+## When invoking this function there should be no JAMF helper windows running
+## but just in case there are check for the process, disown it, and kill it.
+
+jamfHelperUID=$(pgrep jamfHelper)
+
+if [ "$jamfHelperUID" != "" ]
+then
+   disown $jamfHelperUID
+   killall jamfHelper
+fi 
+
+
+SoftwareUpdateMessage="Installing macOS Software Updates   
+for macOS.
+
+Your computer will reboot when finished.
+
+**Some updates may require your
+computer to be shut down instead.**"
+
+"$JAMFHelperPath" -windowType utility -title "$JAMFHelperTitle" \
+-icon "$JAMFHelperIcon" -iconSize 128 -heading "Installing Updates" -alignHeading center -description "$SoftwareUpdateMessage" \
+-alignDescription center &
+
+jamfHelperUID=$(pgrep jamfHelper)
+disown $jamfHelperUID
+
+## Call the software update process
+#/usr/sbin/softwareupdate -i -a
+SWU_OUTPUT=$(softwareupdate -ia --no-scan | grep -e halt)
+
+## We put the recon here so it runs in the background and as the restart countdown begins.
+"$jamfBinary" recon &
+
+##Call reboot function
+rebootComputer
+}
+
+rebootComputer()
+{
+
+## Check for the existence of the output file from the JAMF helper command
+## left over from previous executions.
+if [ -e /tmp/UserInput ]
+   then
+   rm /tmp/UserInput
+fi
+
+## Display a JAMF Helper window notifying the user that a reboot in order to update will happen at 
+## a specified period of time and give them the option to enable it immediately.
+## We send the output to the named pipe and keep the process running in the background which allows for two things.
+## It keeps the window displayed but allows the while loop to start the countdown right away and by sending the 
+## output of command to the named pipe we can then continually assign its contents to a variable inside the while
+## loop allowing the if statement in that loop to check the status of the variable which equates to a user selecting
+## to reboot immediately. If we didn't do it this way the output of the command would only get checked once when the 
+## command initially ran.
+
+RebootMsg="Your computer will reboot in $Minutes mins
+in order to apply the updates.
+
+Please save all work and quit any open applications.
+
+If you would like to defer this reboot
+please select an option below."
+
+FinalRebootMessage="   Your computer will reboot in 1 minute.   
+
+Please save all work and quit all applications now.
+
+**Some updates may require your
+computer to be shut down instead.**"
+
+ComputerRebootMessage="COMPUTER REBOOT TIME HAS ARRIVED!
+
+**Some updates may require your
+computer to be shut down instead.**"
+
+
+killall jamfHelper
+
+"$JAMFHelperPath" -windowType utility -title "$JAMFHelperTitle" -icon "$JAMFHelperIcon" \
+-iconSize 128 -heading "Software Updates Installed" -alignHeading center -description "$RebootMsg" -alignDescription center \
+-button1 "Defer Reboot" -button2 "Reboot Now" -showDelayOptions "1800, 3600, 7200, 14400, 28800, 43200" > /tmp/UserInput &
+
+## Assign the counter variable to another variable that we can use in individual counters
+Timer=$Counter
+
+## While loop to run for the # of iterations specified by the counter variable (which translates to a whole minute number)
+## while checking certain conditions. We inject a 1 second sleep command into each run of the while loop to approximate 5 minutes.
+## If we did not have the sleep command the loop would execute too quickly. Once the loop is over the machine will reboot.
+
+while [ "$Timer" != "0" ]
+do
+
+## Check contents of named pipe and assign it to UserResponse
+UserResponse=$(cat /tmp/UserInput)
+
+
+### Check to see if user closed the jamf helper window without selecting a response. If so open it again.
+if [ "$UserResponse" == "239" ]
+  then
+   "$JAMFHelperPath" -windowType utility -title "$JAMFHelperTitle" -icon "$JAMFHelperIcon" \
+   -iconSize 128 -heading "Software Updates Installed" -alignHeading center -description "$RebootMsg" -alignDescription center \
+   -button1 "Defer Reboot" -button2 "Reboot Now" -showDelayOptions "1800, 3600, 7200, 14400, 28800, 43200" > /tmp/UserInput &
+    UserResponse=$(cat /tmp/UserInput)
+fi
+
+## Since one of the two buttons pressed will return both the number of seconds selected in the counter and the exit code of the button 
+## we need to find out which button was pressed in order to take the correct action. This comman will strip off the last digit in the code 
+## return which tells is which button was pressed. 2 for reboot now and 1 for delay.
+## But we also need to capture any delay in seconds do we do that first
+UserSelectedDelay=$(cat /tmp/UserInput)
+UserResponse=$(echo "${UserResponse: -1}")
+
+## If UserResponse equals 2 (return code of pushing the button) then we assume user has selected to reboot now so
+## We set the counter 1 one as a safety measure in case it doesn't break out
+## of the loop right away. One more subtraction from the counter variable would occur causing it to equal
+## 0 which would also cause the loop to end and the reboot process to start. We could use a break statement here 
+## as well but I liked this method.
+## If the user response has not equated to 0 then we'll pop up a window displaying that there is only 60
+## seconds left before the reboot process is started is started and a reboot happens. We must get the PID of the previous jamfHelper
+## process and disown it first (to prevent unnecessary error messages) then kill it before we display the new
+## message.
+
+if [ "$UserResponse" == "2" ]
+  then
+     echo "User Choose to reboot immediately."
+     Timer="1"
+elif [ "$UserResponse" == "1" ]
+  then
+     ## Using the {} braces for parameter substitution we can strip off the last character (the button code) with the %? expression
+     UserSelectedDelay="${UserSelectedDelay%?}"
+     DelayHour=$(date -v+"$UserSelectedDelay"S +"%H")
+     DelayMinutes=$(date -v+"$UserSelectedDelay"S +"%M")
+     echo "User chose to delay reboot until $DelayHour:$DelayMinutes."
+     rebootDelay
+     exit 0
+elif [ "$Timer" == 60 ]
+  then
+     jamfHelperUID=$(pgrep jamfHelper)
+     disown $jamfHelperUID
+     killall jamfHelper
+     "$JAMFHelperPath" -windowType utility -title "$JAMFHelperTitle" \
+     -icon "$JAMFHelperIcon" -iconSize 128 -heading "Software Updates Installed" -alignHeading center -description "$FinalRebootMessage" \
+     -alignDescription center &
+fi
+sleep 1
+Timer=$((Timer - 1))
+done
+
+## Remove the named pipe
+if [ -e /tmp/UserInput ]
+   then
+   rm /tmp/UserInput
+fi
+
+jamfHelperUID=$(pgrep jamfHelper)
+disown $jamfHelperUID
+killall jamfHelper
+
+"$JAMFHelperPath" -windowType utility -title "$JAMFHelperTitle" \
+-icon "$JAMFHelperIcon" -iconSize 128 -heading "Software Updates Installed" -alignHeading center -description "$ComputerRebootMessage" \
+-alignDescription center &
+
+#Pause just so the final message is sure to be seen
+sleep 5
+
+## Write Zero to the updates attempt file to reset the counter
+defaults write $UpdateAttemptsFile UpdateCount -int 0
+## Reset the policy enabled status
+defaults write $UpdateAttemptsFile PolicyRunning -bool false
+#echo "Rebooting the Machine" 
+#shutdown -r now
+
+if [ "$SWU_OUTPUT" != "" ]
+   then
+     echo "Shutting down the system immediately."
+     halt
+   else
+     echo "Restarting the system immediately."
+     reboot
+fi
+
+}
+
+rebootDelay()
+{
+
+## Write Zero to the updates attempt file to reset the counter
+defaults write $UpdateAttemptsFile UpdateCount -int 0
+## Reset the policy enabled status
+defaults write $UpdateAttemptsFile PolicyRunning -bool false
+
+
+## Create a reboot marker to let us know if the machine has already been rebooted. We'll create a hidden file in the tmp directory
+## so users won't see it but we know it will get cleared out if the machine is rebooted on it's own.
+RebootMarker="/tmp/.ElectricRebootMarker"
+
+touch $RebootMarker
+
+## We make sure to not quote the here doc delimiter to allow variable expansion and substitution specifically of any variable
+## defined previously as we want their values to be passed to the script copied to the client.
+## However there is expansion and substitution of variables that we do not want to happen UNTIL the script is executed on the 
+## client. For those variables we precede the $ with a \
+## This copies the text literally and those variables will get expanded or populated on the client when the script is executed.
+## Simple rule of thumb any variable we collect outside the client script is meant to be expanded and its value transferred to 
+## the heredoc while any variable meant to run on the client does not get expanded now and escaped.
+
+cat <<EOF >/Library/Scripts/SoftwareUpdateReboot
+#!/bin/bash
+#
+# This script is called by a LaunchDaemon at a time previously specified and reboots the computer.
+# If the computer has already been rebooted then the script and the launch daemon are removed.
+
+## Define JAMF Variables
+## We could use the existing variables from earlier but this way the shell doesn't expand them when writing
+## out the script so it looks a little cleaner
+JAMFHelperPath="/Library/Application Support/JAMF/bin/jamfHelper.app/Contents/MacOS/jamfHelper"
+JAMFHelperTitle="Electric Software Update"
+JAMFHelperHeading="Software Updates Available"
+
+## Check for the existence of the output file from the JAMF helper command left over from previous executions.
+if [ -e /tmp/UserInput ]
+   then
+   rm /tmp/UserInput
+fi
+
+if [ -e $RebootMarker ]
+then
+
+## Get the current logged in user
+loggedInUser=\$(ls -l /dev/console | /usr/bin/awk '{ print \$3 }')
+
+if [ "\$loggedInUser" != "root" ]
+then
+
+## Find out if the current user has a branded self service icon if not use a default one for JAMF Helper windows. 
+if [ -e "/Users/\$loggedInUser/Library/Application Support/com.jamfsoftware.selfservice.mac/Documents/Images/brandingimage.png" ]
+   then
+      JAMFHelperIcon="/Users/\$loggedInUser/Library/Application Support/com.jamfsoftware.selfservice.mac/Documents/Images/brandingimage.png"
+   else
+      JAMFHelperIcon="/System/Library/CoreServices/CoreTypes.bundle/Contents/Resources/FinderIcon.icns"
+ fi
+
+## Set the initial timer to the amount of seconds passed in as the 5th (defer) parameter in the software update 
+## policy and set it to the Counter variable.
+## If nothing is passed in or it contains alphanumeric characters set the timer to
+## 300 seconds which equals 5 minutes.
+## We might need to use let here so it is sure to assign the variable as a number.
+## Probably not necessary but just in case.
+
+## Assign the counter variable to another variable that we can use in individual counters
+Timer=$Counter
+
+RebootMsg="Deferred reboot time has arrived.
+
+Your computer will reboot in $Minutes minutes
+in order to apply updates.
+
+Please save all work and quit any open applications."
+
+FinalRebootMessage="   Your computer will reboot in 1 minute.   
+
+Please save all work and quit all applications now.
+
+**Some updates may require your
+computer to be shut down instead.**"
+
+ComputerRebootMessage="COMPUTER REBOOT TIME HAS ARRIVED!
+
+**Some updates may require your
+computer to be shut down instead.**"
+
+"\$JAMFHelperPath" -windowType utility -title "\$JAMFHelperTitle" \
+-icon "\$JAMFHelperIcon" -iconSize 128 -heading "COMPUTER REBOOT" -alignHeading center -description "\$RebootMsg" \
+-alignDescription center -button1 "Reboot" > /tmp/UserInput &
+
+while [ "\$Timer" != "0" ]
+do
+## Check contents of named pipe and assign it to UserResponse
+
+UserResponse=\$(cat /tmp/UserInput)
+
+if [ "\$UserResponse" == "0" ]
+  then
+     echo "Delayed Reboot Executing: User Choose to reboot."
+     Timer="1"
+  elif [ "\$Timer" == 60 ]
+  then
+     echo "Delayed Reboot Executing: 1 minute on timer left."
+     jamfHelperUID=\$(pgrep jamfHelper)
+     disown \$jamfHelperUID
+     killall jamfHelper
+     "\$JAMFHelperPath" -windowType utility -title "\$JAMFHelperTitle" -icon "\$JAMFHelperIcon" -iconSize 128 \
+     -heading "COMPUTER REBOOT" -alignHeading center -description "\$FinalRebootMessage" -alignDescription center &
+fi
+sleep 1
+Timer=\$((Timer - 1))
+done
+
+## Remove the named pipe
+if [ -e /tmp/UserInput ]
+   then
+   rm /tmp/UserInput
+fi
+
+jamfHelperUID=\$(pgrep jamfHelper)
+disown \$jamfHelperUID
+killall jamfHelper
+
+"\$JAMFHelperPath" -windowType utility -title "\$JAMFHelperTitle" \
+-icon "\$JAMFHelperIcon" -iconSize 128 -heading "Software Updates Installed" -alignHeading center -description "\$ComputerRebootMessage \
+-alignDescription center &
+
+#Pause just so the final message is sure to be seen
+sleep 5
+
+#end logged in user check
+fi
+
+rm /Library/LaunchDaemons/com.electric.SoftwareUpdateReboot.plist
+rm /Library/Scripts/SoftwareUpdateReboot
+ 
+if [ "$SWU_OUTPUT" != "" ]
+then
+  echo "Shutting down the system immediately."
+  halt
+else
+  echo "Restarting the system immediately."
+  reboot
+fi
+
+#end marker check
+fi
+
+## Remove the script and the Launch Daemon
+echo "Reboot marker not found assuming machine has already been rebooted. Removing Launch Dameon if it exists."
+
+if [ -e /Library/Scripts/SoftwareUpdateReboot ]
+then
+rm -f /Library/Scripts/SoftwareUpdateReboot
+fi
+
+## Remove and stop the Launch Daemon if it exists
+if [ -e /Library/LaunchDaemons/com.electric.SoftwareUpdateReboot.plist ]
+then
+# Remove the Launch Daemon plist file and then unload the actual Daemon from Launch Control
+rm -f /Library/LaunchDaemons/com.electric.SoftwareUpdateReboot.plist
+launchctl remove com.electric.SoftwareUpdateReboot
+fi
+EOF
+
+chown root:wheel /Library/Scripts/SoftwareUpdateReboot
+chmod 755 /Library/Scripts/SoftwareUpdateReboot
+
+####Write launch daemon to run local script
+cat <<EOF >/Library/LaunchDaemons/com.electric.SoftwareUpdateReboot.plist
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple Computer//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+<key>Label</key>
+<string>com.electric.SoftwareUpdateReboot</string>
+<key>Program</key>
+<string>/Library/Scripts/SoftwareUpdateReboot</string>
+<key>StartCalendarInterval</key>
+<dict>
+    <key>Hour</key>
+    <integer>$DelayHour</integer>
+    <key>Minute</key>
+    <integer>$DelayMinutes</integer>
+</dict>
+</dict>
+</plist>
+EOF
+
+chown root:wheel /Library/LaunchDaemons/com.electric.SoftwareUpdateReboot.plist
+chmod 644 /Library/LaunchDaemons/com.electric.SoftwareUpdateReboot.plist
+
+## The daemon should not be running here but just in case unload it
+launchctl unload /Library/LaunchDaemons/com.electric.SoftwareUpdateReboot.plist 2>/dev/null
+## Load the daemon
+launchctl load /Library/LaunchDaemons/com.electric.SoftwareUpdateReboot.plist
+}
+
+getUpdates()
+{
+
+if [ -e /tmp/softwareupdates.txt ]
+then
+rm /tmp/softwareupdates.txt
+fi
+
+/usr/sbin/softwareupdate --list >> /tmp/softwareupdates.txt
+
+UpdatesReqRestart=$(cat /tmp/softwareupdates.txt | egrep 'restart|shutdown' | awk -F ',|\\\(' '{print$1}')
+
+UpdatesNoRestart=$(cat /tmp/softwareupdates.txt | egrep -v 'restart|shutdown' | egrep recommended | awk -F ',|\\\(' '{print$1}')
+
+if [ "$UpdatesReqRestart" == "" ] && [ "$UpdatesNoRestart" == "" ]
+   then
+   if [ -e "$UpdateAttemptsFile" ]
+      then
+        defaults write $UpdateAttemptsFile UpdateCount -int 0
+        defaults write $UpdateAttemptsFile PolicyRunning -bool false
+        echo "No updates found. Resetting the software update counter and policy enablement. Exiting the Script."
+        exit 0
+    else  
+    echo "No new software to install. "  
+   fi
+   elif [ "$UpdatesReqRestart" != "" ]
+        then
+          RestartReq=1
+          echo "Restarts required equals $RestartReq"
+          defaults write $UpdateAttemptsFile PolicyRunning -bool true
+          updatesWithRestart
+   elif [ "$UpdatesNoRestart" != "" ]
+        then
+          RestartReq=0
+          echo "Restarts required equals $RestartReq"
+          defaults write $UpdateAttemptsFile PolicyRunning -bool true
+          installUpdatesNoRestart
+  fi
+}
+
+#### This activates the entire script
+
+##Get the full weekday when the policy is run as well as the current policy status
+CurrentWeekday=$(date +%A | tr '[:upper:]' '[:lower:]')
+echo "The current day of the week is $CurrentWeekday"
+
+##Check to see if the policy is currently enabled. That is it has already been run once but the updates have
+## not yet been installed. This enables the policy to run on days other than the days specified.
+## We redirect stderr to /dev/null because if the policy has never run the PolicyRunning key won't exits which 
+## will cause defaults to throw and error.
+PolicyStatus=$(defaults read $UpdateAttemptsFile PolicyRunning 2>/dev/null)
+echo "The current policy status is $PolicyStatus"
+
+if [ "$CurrentWeekday" == "$DayofWeek" ] || [ "$PolicyStatus" == "1" ]
+then
+echo "Policy is currently enabled or the Policy Start Day matches today."
+getUpdates
+else
+echo "Policy is not currently enabled and is set to run on $DayofWeek's."
+fi
