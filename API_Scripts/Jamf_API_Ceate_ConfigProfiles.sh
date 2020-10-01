@@ -1,4 +1,4 @@
-#/bin/bash
+#!/bin/sh
 
 ## This script is designed to check if an Configuration Profile exists on a Jamf Pro Server and
 ## if not to upload a new one.
