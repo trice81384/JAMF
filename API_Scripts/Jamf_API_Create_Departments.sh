@@ -1,4 +1,4 @@
-#/bin/bash
+#!/bin/sh
 
 ## This script is designed to check if a Department exists on a JSS and
 ## if not to upload a new one.
