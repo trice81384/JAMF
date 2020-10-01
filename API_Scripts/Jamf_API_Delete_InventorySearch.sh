@@ -1,4 +1,4 @@
-#/bin/bash
+#!/bin/sh
 
 ## This script is designed to check if a Inventory Search exists on a Jamf Pro and
 ## if so delete it.
