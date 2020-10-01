@@ -1,4 +1,4 @@
-#/bin/bash
+#!/bin/sh
 
 ## This script is designed to report the amount of Macs and iOS Devices on a JAMF
 ## instance, the total amount of devices on an instance, and the total number of devices 
