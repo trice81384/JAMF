@@ -1,4 +1,4 @@
-#/bin/bash
+#!/bin/sh
 
 ## This script is designed to check if a Policy exists on a Jamf Pro Server and
 ## if so delete it.
