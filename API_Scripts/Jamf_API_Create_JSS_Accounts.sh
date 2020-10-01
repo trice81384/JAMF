@@ -1,4 +1,4 @@
-#/bin/bash
+#!/bin/sh
 
 ## This script is designed to check if a JSS User Account exists on a Jamf Pro Server and
 ## if not to upload a new one.
