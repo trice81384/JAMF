@@ -1,4 +1,4 @@
-#/bin/bash
+#!/bin/sh
 
 ## This script is designed to report the Company,Computer Name,Serial Number,and UUID
 ## of all the computers in a Jamf Pro Server instance across all instances.
