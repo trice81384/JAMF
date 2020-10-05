@@ -4,7 +4,7 @@
 ## if not to upload a new one.
 ## Package data can be uploaded by id to the following endpoint:
 ## /JSSResource/packages/id/0
-## Actually packages can be uploaded to the following endpoing:
+## Actual packages can be uploaded to the following endpoing:
 ## /dbfileupload
 
 ##Any references to the JSS are due to historical reasons but JSS = Jamf Pro Server
