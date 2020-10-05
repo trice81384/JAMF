@@ -2,8 +2,10 @@
 
 ## This script is designed to check if a Package exists on a Jamf Pro Server and
 ## if not to upload a new one.
-## Packages can be uploaded by id to the following endpoint:
+## Package data can be uploaded by id to the following endpoint:
 ## /JSSResource/packages/id/0
+## Actually packages can be uploaded to the following endpoing:
+## /dbfileupload
 
 ##Any references to the JSS are due to historical reasons but JSS = Jamf Pro Server
 
