@@ -1,65 +1,212 @@
 #!/bin/bash
 
-### This script is designed to be run once a day and check for a cached macOS installer.
-### If the installer exists and a user is logged in they are prompted to install the update.
-### A user is given 3 chances to install the update on their own. On the 4th execution macOS is 
-### forcibly installed. A dummy receipt is also created to be used in conjunction with a smart group
-### to present the installer in Self Service.
+## Version 2
+## 12/21/21
+## Tom Rice (Macadmins: trice Github: trice81384)
 
-#### Special thanks to the following for inspiraton on various parts of the script/
+### This script is designed to be run once a day from Jamf and check for a cached macOS installer.
+### If the installer exists and a user is logged in they are prompted to install the update.
+### A user is given x amount of chances to install the update on their own. On the x+1 execution macOS is forcibly installed.
+### If the installer does not exist it will be cached for a future attempt and a dummy receipt created to be used in conjunction with a smart group
+### to present the installer in Self Service. A separate policy to actually cache the installer needs to exist with a custom trigger.
+
+### It is recommended that that policy that runs this script is scoped to only the machines you wish to upgrade.
+
+
+#### Special thanks to the following for inspiration on various parts of the script.
 ### Rich Trouton
 ### https://github.com/rtrouton
 ### Mike M
 ### https://github.com/mm2270
 ### Alexander Wolpert 
 ###https://github.com/alex030
-### All the people on JAMF Nation
+### All the people on JAMF Nation and MacAdmins Slack.
 
-#########################################################################################
+ScriptLogging(){
+# Function to provide logging of the script's actions either to the console or the log file specified.
+    local LogStamp=$(date +%Y-%m-%d\ %H:%M:%S)
+    if [[ -n "$2" ]]
+    then
+      LOG="$2"
+    else
+      LOG="PATH TO LOG FILE HERE"
+    fi
+    
+    ## To output to a log file append ' >> $LOG' to the below echo statement 
+    echo "$LogStamp" " $1"
+}
+
 ################### Define Global Variables #############################################
-## Values for Mojave should be the following:
-# macOSName: Mojave
-# macOSVersion: 10.14.6
-# macOSBuild: 18G84
-# PackageName: Install-Mojave-10.14.6-20191024.pkg
-# CachedmacOSFile: /Library/Application Support/Jamf/Waiting Room/Install-Mojave-10.14.6-20191024.pkg
-# CachedFileSize: 6038499515
 
-#Name of the macOS to be Installed
-macOSName="Catalina"
+## Parameter 4 passed in from Jamf will set the name of the macOS to be installed.
+## This value is used in the case statement below to define parameters for the OS as well
+## as elsewhere throughout the script such as Jamf Helper dialogs.
+macOSName="$4"
 
-#Version of the macOS to be installed
-macOSVersion="10.15.3"
+## Parameter 5 passed in from Jamf will set the total amount of update chances we will give the user.
+## If no value is specified it will default to 3.
+TotalAttempts="$5"
 
-#Version of the macOS to be installed
-macOSBuild="19D76"
+## Parameter 6 passed in from Jamf will set the amount of seconds to wait before rebooting the machine to apply the updates. 
+## If no value is specified it will default to 300 seconds or 5 mins.
+Seconds="$6"
 
-##Name of the OS Installer Package
-PackageName="Install-Catalina-10.15.3-20200203.pkg"
+## Parameter 6 passed in from Jamf will set the name of the organization running the script.
+## This name is used in various plists, launch daemons, and other configuration options. 
+## If no organization name is specified then the default of "My ORG" will be used.
+OrgName="$6"
 
-##Location of cached Installer
-CachedmacOSFile="/Library/Application Support/Jamf/Waiting Room/$PackageName"
+if [[ -z "$OrgName" ]]
+then
+OrgName="My ORG"
+ScriptLogging "No Organization Name specified. Using \"My ORG\"."
+fi
 
-#Expected Size of the Cached installer
-CachedFileSize="8163733917"
+## Remove any white spaces entered with the organizational name and convert it to lower case
+FormattedOrgName=$(echo $OrgName | sed 's/ //g' | tr '[:upper:]' '[:lower:]')
+
+## Fill in the values as needed for the version of the OS you'll be installing while adding additional OS Versions as needed.
+## Some possible values are:
+## Mojave: Version: 10.14.6, Build: 18G84
+## Catalina: Version: 10.15.7, Build: 19H15
+## Big Sur: Version: 11.6, Build: 20G164
+
+case "$macOSName" in
+     "Mojave" )
+	     #Version of the macOS to be installed
+        macOSVersion=""
+
+	     #Build of the macOS to be installed
+        macOSBuild=""
+
+	     #Name of the OS Installer Package
+	     PackageName=""
+		
+	     ##Location of cached Installer
+	     CachedmacOSFile="/Library/Application Support/Jamf/Waiting Room/$PackageName"
+
+	     #Expected Size of the Cached installer
+	     CachedFileSize=""
+		
+        ## Free space needed to cache package measured in Gigibytes
+        ## Found by taking the amount of GB needed, converting to Gi, and rounding to the next whole number
+        ## GB * (1000^3) / (1024^3)
+        needed_free_space=""
+
+	     #Catalina Cache Trigger
+        cachemacOS="cache$macOSName"
+	  ;;
+
+	  "Catalina" )
+		  #Version of the macOS to be installed
+		  macOSVersion=""
+		
+		  #Version of the macOS to be installed
+		  macOSBuild=""
+		
+		  #Name of the OS Installer Package
+		  PackageName=""
+		
+		  #Location of cached Installer
+		  CachedmacOSFile="/Library/Application Support/Jamf/Waiting Room/$PackageName"
+		
+		  #Expected Size of the Cached installer
+		  CachedFileSize=""
+		
+        ## Free space needed to cache package measured in Gigibytes
+        ## Found by taking the amount of GB needed, converting to Gi, and rounding to the next whole number
+        ## GB * (1000^3) / (1024^3)
+        needed_free_space=""
+
+		  #Catalina Cache Trigger
+        cachemacOS="cache$macOSName"
+	  ;;
+	
+	  "Big Sur" )
+		  #Version of the macOS to be installed
+		  macOSVersion=""
+		
+		  #Version of the macOS to be installed
+		  macOSBuild=""
+		
+		  #Name of the OS Installer Package
+		  PackageName=""
+		
+		  #Location of cached Installer
+		  CachedmacOSFile="/Library/Application Support/Jamf/Waiting Room/$PackageName"
+		
+		  #Expected Size of the Cached installer
+		  CachedFileSize=""
+		
+        ## Free space needed to cache package measured in Gigibytes
+        ## Found by taking the amount of GB needed, converting to Gi, and rounding to the next whole number
+        ## GB * (1000^3) / (1024^3)
+        needed_free_space=""
+
+		  #Big Sur Cache Trigger
+        cachemacOS="cache$macOSName"
+	  ;;
+	
+	  *)
+		  echo "Unknown OS input in parameter 4, exiting with error...."
+		  exit 1
+	  ;;
+esac
+
+## Check the number of seconds passed in for a reboot delay
+## Any value other than a number, including a null value, will default the reboot timer to 300 seconds or 5 minutes. 
+## reboot timer will default to 300 seconds or 5 minutes. If less that 120 seconds are enter the timer will be set to 2 minutes
+## to both give the user enough time to quit any applications and for the 1 minute reboot warning to display.
+## We assign the parameter to a variable first just so we don't have to worry about the logic later if we need to.
+
+if [[ "$Seconds" == *[!0-9]* ]] || [[ -z "$Seconds" ]]
+then
+ScriptLogging "No valid defer time found. Defaulting to 5 mins."
+Seconds=300
+elif [[ "$Seconds" -le "120" ]]
+then
+ScriptLogging "Delay timer set to low. Setting to 2 mins."
+Seconds=120
+fi
+
+### Double parens are required when command substitution is performing arithmetic operations and assignments. ###
+### They will be used for most numerical comparisons in the script due to more consistent results. ###
+
+## Figure out the amount of whole minutes from inputted seconds.
+## This variable will be displayed to the user.
+Minutes=$((Seconds / 60))
+ScriptLogging "Machine reboot timer is set to $Minutes minutes."
+
+## Figure out any additional seconds over the total amount of whole minutes
+ExtraSeconds=$((Seconds % 60))
+
+## Subtract the additional seconds from the total amount of seconds which will give us 
+## a timer/counter variable in whole minutes.
+Counter=$((Seconds-ExtraSeconds))
 
 ## Free space on target disk measured in Gigibytes
 available_free_space=$(df -g / | tail -1 | awk '{print $4}')
 
-## Free space needed for install measured in Gigibytes
-## Found by taking the amount of GB needed, converting to Gi, and rounding to the next whole number
-## GB * (1000^3) / (1024^3)
-needed_free_space=""
-
 ## Current logged in user
 loggedInUser=""
 
-## Total amount of update chances we will give the user
+## Validate the amount of deferral chances passed in.
+## Any value other than a number, including a null value, will result in the total user chances being set to 3.
+## Any number less than 3 will result in the total number of chances being set to 3.
+if [[ "$TotalAttempts" == *[!0-9]* ]] || [[ -z "$TotalAttempts" ]]
+then
+ScriptLogging "No valid deferral count specified. Defaulting to 3 chances."
 TotalAttempts="3"
+elif [[ "$TotalAttempts" -lt "3" ]]
+then
+ScriptLogging "Deferrals set too low. Setting to 3 user attempts."
+TotalAttempts="3"
+fi
 
-## Final Chance is always 1 more then TotalAttempts can code this to just add 1 to 
-FinalChance="4"
-##
+## Final Chance is 1 more than TotalAttempts and represents at which count the update process will be forced.
+FinalChance=$((TotalAttempts+1))
+
+## Update Deferral Variables
 UpdateCount=""
 UpdateAttempts=""
 UpdateChancesLeft=""
@@ -67,249 +214,285 @@ UpdateAttemptsFile="/etc/.macOSUpdateAttempts.txt"
 macOSIsCached=""
 PowerStatus=""
 
-## JAMF and Cocoa Dialog Stuff
+## Jamf Helper Stuff
 JAMFHelperPath="/Library/Application Support/JAMF/bin/jamfHelper.app/Contents/MacOS/jamfHelper"
 JAMFHelperIcon="/System/Library/CoreServices/CoreTypes.bundle/Contents/Resources/FinderIcon.icns"
-JAMFHelperTitle="macOS $macOSName Update"
-JAMFHelperHeading="$macOSName Update Ready"
+JAMFHelperTitle="$OrgName: macOS $macOSName Upgrade"
+JAMFHelperHeading="$macOSName Upgrade Ready"
 
-##  Get minor version of OS X
-osVers=$( sw_vers -productVersion | cut -d. -f2 )
-#
-##   Set appropriate Restart icon depending on OS version
-if [[ "$osVers" -ge "9" ]]; then
+## Get the major version of macOS that computer is upgrading to
+macOSUpgradeVersionMajor=$( echo "$macOSVersion" | cut -d. -f1 )
+## Get the major/minor version of macOS that computer is upgrading to
+macOSUpgradeVersion=$( echo "$macOSVersion" | cut -d. -f1,2 )
+## Get major version of OS X currently running on Mac
+osVersMajor=$( sw_vers -productVersion | cut -d. -f1 )
+## Get minor version of OS X currently running on Mac
+osVersMinor=$( sw_vers -productVersion | cut -d. -f2 )
+## Get major/minor version of OS X currently running on Mac
+osVersFull=$( sw_vers -productVersion | cut -d. -f1,2 )
+
+## Set appropriate Restart icon depending on OS version (Can be used for dialog windows)
+if [[ "$osVersMinor" -ge "9" ]]; then
    restartIcon="/System/Library/CoreServices/loginwindow.app/Contents/Resources/Restart.tiff"
    else 
    restartIcon="/System/Library/CoreServices/loginwindow.app/Contents/Resources/Restart.png"
 fi
-## Set the installAllAtLogin flag here to 'yes' or leave it blank (equivalent to 'no')
-## Function: When the script is run on a Mac that is at the login window, if the flag is set to 'yes',
-## it will lock the login window to prevent unintended logins and proceed to install all available updates.
-## Once completed, the login window will either be unlocked in the case of no restarts needed,
-## or a restart will be done immediately to complete the installations.
-installAllAtLogin="yes"
-## Set the Organization/Department/Division name. Used in dialog titles 
-orgName="Electric"
-## Set the number of minutes until reboot (only used if installations require it)
-## Special note: Only full integers can be used. No decimals.
-minToRestart=5
+
 ## If the file containing the number of software update attempts does not exist or has a size
 ## of zero bytes then set the number of update attempts to zero by writing just a zero to the file
-if [ ! -s "$UpdateAttemptsFile" ]
+if [[ ! -s "$UpdateAttemptsFile" ]]
    then
-   /bin/echo 0 > $UpdateAttemptsFile
+   /bin/echo 0 > "$UpdateAttemptsFile"
 fi
 ## Write the contents of UpdateAttemptsFile to a variable so it can be manipulated later
 ## and written back to the UpdateAttemptsFile based upon user input
-UpdateCount=`/bin/cat $UpdateAttemptsFile`
+UpdateCount=$(/bin/cat $UpdateAttemptsFile)
 
-################### End Define Global Variables #########################################
-#########################################################################################
-
-#########################################################################################
 ######################### JAMF Binary Check  ############################################
-## This if statement is designed to check for the location of the jamf binary in multiple 
+## This if statement is designed to check for the location of the Jamf binary in multiple 
 ## places due to changes in OSX associated with JAMF's upgrade to version 9.81
 ## References to the JAMF Binary must be changed to "$jamfBinary"
-## Added 12/1/15 by tomr
-##
-if [ -e /usr/local/jamf/bin/jamf ]
+
+if [[ -e /usr/local/jamf/bin/jamf ]]
    then
       # JAMF Binary found at 9.81 or later location
-      echo "JAMF Binary found at 9.81 or later location"
+      ScriptLogging "JAMF Binary found at 9.81 or later location"
       jamfBinary="/usr/local/jamf/bin/jamf"
       #
-   elif [ -e /usr/local/bin/jamf ]
+   elif [[ -e /usr/local/bin/jamf ]]
    then
       # Alias to the JAMF Binary found
-      echo "Alias to the JAMF Binary found"
+      ScriptLogging "Alias to the JAMF Binary found"
       jamfBinary="/usr/local/bin/jamf"
       #
    else
-   echo "JAMF Binary not found"
+   ScriptLogging "JAMF Binary not found"
 fi
-################### End JAMF Binary Check ##### #########################################
-#########################################################################################
 
-#########################################################################################
-######################### App Store Downloads Check  ####################################
-for OSInstaller in "/Applications/Install macOS"*
+######################### Existing macOS Downloads Check  ###############################
+## Check to see if previous macOS installers have been downloaded and if so remove them.
+
+for OSInstaller in /Applications/*Install\ macOS*
 do
-   if [ -e "$OSInstaller" ]
+   if [[ -e "$OSInstaller" ]]
    then
-   echo "$OSInstaller found. Deleting"
-   rm -rf "$OSInstaller"
+    ## Check to see if the build of the installer matches the build of the OS we want to install
+    ## so we don't delete a valid installer unnecessarily.
+    InstallerBuild=$(defaults read "$OSInstaller"/Contents/Info.plist DTSDKBuild)
+     if [[ "$InstallerBuild" != "$macOSBuild" ]]
+     then
+       ScriptLogging "Old $OSInstaller found. Deleting."
+       rm -rf "$OSInstaller"
+     fi
    fi
 done
-################### End App Store Downloads Check #######################################
-#########################################################################################
 
-#########################################################################################
 ######################### macOSCache Check ##############################################
 checkmacOSCache()
 {
-if [ -e "$CachedmacOSFile" ]
+## Check to see if a macOS installer package has previously been cached correctly. If not cache it.
+
+if [[ -e "$CachedmacOSFile" ]]
    then
-       if [[ `stat -f %z "$CachedmacOSFile"` -ge "$CachedFileSize" ]]
+       if [[ $(stat -f %z "$CachedmacOSFile") -ge "$CachedFileSize" ]]
         then
-           echo "$macOSName $macOSVersion Cached Fully"
+           ScriptLogging "$macOSName $macOSVersion Cached Fully"
            macOSIsCached="Yes"
            ## Added to create a dummy receipt to allow users to install from Self Service if they chose to defer the update.
            ## Dummy receipt depends on if macOS is cached correctly.
-           if [ ! -e /Library/Application\ Support/JAMF/Receipts/"$macOSName"-"$macOSVersion"_SS.pkg ]; then
-              echo "Creating dummy receipt for Self Service Policy"
+           if [[ ! -e /Library/Application\ Support/JAMF/Receipts/"$macOSName"-"$macOSVersion"_SS.pkg ]]
+           then
+              ScriptLogging "Creating dummy receipt for Self Service Policy"
               touch /Library/Application\ Support/JAMF/Receipts/"$macOSName"-"$macOSVersion"_SS.pkg 
               "$jamfBinary" recon
            fi
         else 
-           echo "$macOSName $macOSVersion not cached correctly. Removing failed download attempts and recaching"
+           ScriptLogging "$macOSName $macOSVersion not cached correctly. Removing failed download attempts and recaching"
            rm -r "$CachedmacOSFile"
            rm -r "$CachedmacOSFile.cache.xml" &> /dev/null
            macOSIsCached="No"
         fi
    else
-   echo "$macOSName $macOSVersion installer not Found. Caching."
+   ScriptLogging "$macOSName $macOSVersion installer not Found. Caching."
    macOSIsCached="No"
 fi
 }
-################### End macOS Cache Check ###############################################
-#########################################################################################
 
-#########################################################################################
 ######################### Battery Power Check ###########################################
 checkPower()
 {
+## Check to see if the mac is running on AC Power or has more than 25% of a battery charge in order to start
+## the installation process. The 25% number is completely arbitrary based on my own observations and should be 
+## adjusted as appropriate. It shuold be noted Apple's own installers do not check battery percentage nor do they
+## stop installations if a battery does not have a sufficient charge.
+
 if [[ $(pmset -g ps | head -1) =~ "AC Power" ]]
    then 
-      echo "On Power Adapter"
+      ScriptLogging "On Power Adapter"
       PowerStatus="Good"
     else
       CurrentBatteryPercentage=$(pmset -g batt | egrep "([0-9]+\%).*" | awk '{print $3}' | tr -d %\;)
       if [[ "$CurrentBatteryPercentage" -ge 25 ]]
       then
-      echo "Battery is $CurrentBatteryPercentage% Charged"
+      ScriptLogging "Battery is $CurrentBatteryPercentage% Charged"
       PowerStatus="Good"
       else
-      echo "Battery is $CurrentBatteryPercentage% Charged"
+      ScriptLogging "Battery is $CurrentBatteryPercentage% Charged"
       PowerStatus="Bad"
       fi
 fi
 }
-################### End Battery Power Check ##############################################
-##########################################################################################
 
-##########################################################################################
 ######################### Free Space Check ###############################################
 ## If the machine is currently running Yosemite or lower than it needs 19GB of free space prior to
 ## upgrading otherwise it needs 13GB.
-if [[ "$osVers" -le "10" ]]; then
-   needed_free_space="19"
-   else 
-   needed_free_space="13"
-fi
-################### End Free Space Check #################################################
-##########################################################################################
+## If installing macOS 11 or greater, the needed_free_space value is kept as indicated in the case statement
+## at the top of this script. Otherwise, it is set below.
 
-##########################################################################################
-######################### MacOS Initialization ############################################
-## We start the macOS Update process here. First we check if a user is logged in and if there
-## is we see if there is enough free space for the installation. If both of those conditions are met
-## then begin the install. We keep them as separate if statements so we can see exactly which condition
-## failed. The user is given 4 chances to update on their own otherwise they update begins automatically.
-## When the update starts the heavy lifting is done in another function.
-## Formatting and spacing in the MSG Box Dialogs are important.
+if [[ "$macOSUpgradeVersionMajor" -lt "11" ]]
+then
+  if [[ "$osVersMinor" -le "10" ]]; then
+      needed_free_space="19"
+  else
+      needed_free_space="13"
+  fi
+fi
+
+######################### MacOS Install Initialization #####################################
 startUpdate()
 {
+## The macOS Update process is started in this function. First we check if a user is logged in and if there
+## is we see if there is enough free space for the installation. If both of those conditions are met
+## then begin the install. We keep them as separate if statements so we can see exactly which condition
+## failed. The user is given X chances to update on their own otherwise they update begins automatically on X+1.
+## When the update starts the heavy lifting is done in another function.
+## Formatting and spacing in the MSG Box Dialogs are important.
+
 ## Get Current User
 loggedInUser=$(/bin/ls -l /dev/console | /usr/bin/awk '{ print $3 }')
-if [ "$loggedInUser" != "root" ]
+
+if [[ "$loggedInUser" != "root" ]]
    then
       if [[ "$available_free_space" -ge "$needed_free_space" ]]
          then
-         echo "$available_free_space gigabytes found as free space on boot drive. Prompting user to install OS."
+         ScriptLogging "$available_free_space gigabytes found as free space on boot drive. Prompting user to install OS."
          UpdateChancesLeft=$((TotalAttempts - UpdateCount))
-         if [ $UpdateChancesLeft = 0 ]
-           then
+         if [[ "$UpdateChancesLeft" = 0 ]]
+         then
 ##We'll keep the install message left justified to prevent JAMF Helper formatting issues.           
-installMSG="Your Mac is now being updated to
-macOS $macOSName $macOSVersion.
+installMSG="Deferred installation of 
+macOS $macOSName $macOSVersion happening.
            
 Please do not shut down your Mac or put it to sleep.
            
 IMPORTANT:
-We recommend saving any important documents now.
-Your Mac will reboot in order to complete the update."
+We recommend saving any important
+documents now. Your Mac will reboot
+in order to complete the update."
            
            "$JAMFHelperPath" -windowType utility -title "$JAMFHelperTitle" \
            -icon "$JAMFHelperIcon" -iconSize 128 -heading "$JAMFHelperHeading" -alignHeading center -description "$installMSG" \
            -alignDescription center -timeout 15
-           echo "Forced update of $macOSName $macOSVersion Happening"
+           ScriptLogging "Forced update of $macOSName $macOSVersion Happening"
            jamfHelperPID=$(pgrep jamfHelper)
-           disown $jamfHelperPID
+           disown "$jamfHelperPID"
            installMacOS
            else
            UpdateAttempts=$((UpdateCount + 1))
            InformativeTextMsg="The following is waiting to be installed and requires a restart of your computer:
            
 macOS $macOSName $macOSVersion
-
-This is user installation attempt $UpdateAttempts of $TotalAttempts.
+This is user notification $UpdateAttempts of $TotalAttempts.
            
-Attempt $FinalChance will install $macOSName automatically and your machine will restart."
+Attempt $FinalChance will install $macOSName automatically and your machine will restart.
+
+**You may also run the upgrade from Self Service.**"
 
            UserResponse=$("$JAMFHelperPath" -windowType utility -title "$JAMFHelperTitle" \
                -icon "$JAMFHelperIcon" -iconSize 128 -heading "$JAMFHelperHeading" -alignHeading center -description "$InformativeTextMsg" \
-               -alignDescription center -button1 "Install" -button2 "Cancel" -cancelButton 2 )
-                if [ $UserResponse == 2 ]
+               -alignDescription center -button1 "Install" -button2 "Defer" -cancelButton 2 )
+                if [[ "$UserResponse" == 2 ]] || [[ "$UserResponse" == 239 ]]
                 then
-                   /bin/echo $UpdateAttempts > $UpdateAttemptsFile
-                   echo "User choose to defer"
-                   echo "This was user installation attempt $UpdateAttempts of $TotalAttempts."
+                   /bin/echo "$UpdateAttempts" > "$UpdateAttemptsFile"
+                   ScriptLogging "User choose to defer"
+                   ScriptLogging "This was user installation attempt $UpdateAttempts of $TotalAttempts."
                    ## Added to create a dummy receipt to allow users to install from Self Service if they chose to defer the update
                    ## Moving dummy receipt creation to Cache function because it makes more sense to have it created as soon as it is cached instead of waiting
                    ## for a user to defer. This gives users a more immediate chance to install it from Self Service if need be.
+                   
+                   ## Calculate deferrals remaining and adjust messaging accordingly
+                   DeferralsRemaining=$((TotalAttempts - UpdateAttempts))
+                   if [[ "$DeferralsRemaining" != 0 ]]
+                   then
+                             InformativeTextMsg="The update process was deferred.
+
+This was deferral $UpdateAttempts of $TotalAttempts
+
+You will be prompted to install
+macOS $macOSName $macOSVersion again tomorrow.
+**You may also run the upgrade
+from Self Service.**" 
+                   else
+                              InformativeTextMsg="The update process was deferred.
+
+There are no more deferrals remaining.
+           
+macOS $macOSName $macOSVersion
+will automatically be installed tomorrow."
+                   fi
+
+                   "$JAMFHelperPath" -windowType utility -title "$JAMFHelperTitle" \
+                   -icon "$JAMFHelperIcon" -iconSize 128 -heading "$JAMFHelperHeading" -alignHeading center -description "$InformativeTextMsg" \
+                   -alignDescription center -button1 "OK"
                    exit 0
-                elif [ $UserResponse == 0 ]
+                elif [[ "$UserResponse" == 0 ]]
                 then
-                  echo "User choose to install $macOSName $macOSVersion."
+                  ScriptLogging "User choose to install $macOSName $macOSVersion."
                   # We capture the JAMF Helper's PID so we can pass it to the disown command which removes it from
                   # the shell's list of watched jobs. The prevents debug messages from being generated when killing the process.
                   ## Disown works more reliably then using "wait" for the shell to release the job and piping the output to /dev/null
                   jamfHelperPID=$(pgrep jamfHelper)
-                  disown $jamfHelperPID
+                  disown "$jamfHelperPID"
                   installMacOS
                 fi
          fi
       else
-            echo "Not enough free space for install displaying message to user."
+            ScriptLogging "Needed free space for upgrade from macOS $osVersMajor.$osVersMinor to $macOSVersion set to $needed_free_space GB."
+            ScriptLogging "Not enough free space for install displaying message to user."
             DiskSpaceMSG=" Your Mac does not have enough free space
      to upgrade to 
      macOS $macOSName $macOSVersion
+
             At least $needed_free_space GB of free space is needed.
             Please back up and remove files that are
             no longer needed so that the installer may run."
             JAMFHelperIcon="/System/Library/CoreServices/CoreTypes.bundle/Contents/Resources/AlertCautionIcon.icns"
-            UserResponse=$("$JAMFHelperPath" -windowType utility -title "Disk Space Warning" \
+            UserResponse=$("$JAMFHelperPath" -windowType utility -title "$JAMFHelperTitle" \
                   -icon "$JAMFHelperIcon" -heading "Not Enough Free Space" -alignHeading center -description "$DiskSpaceMSG" \
                  -alignDescription center -button1 "Quit" )
       fi
     else
     ## No user logged so do nothing
-    echo "No user logged in. Skipping execution"
+    ScriptLogging "No user logged in. Skipping execution"
 fi  
 }
-################### End macOS Update Initialization ####################################
-#########################################################################################
 
-#########################################################################################
 ######################### macOS Installation  ###########################################
 installMacOS()
 {
+## This function actually installs the macOS upgrade. It provides final installation and reboot
+## warnings to the user as well as prepping the environment for the installation. It provides the user
+## with a set period of time before the computer will start the installation process. That time period is
+## defined as a parameter passed into the script. This function also writes local scripts and launch agents
+## to the machine so that it's information can be correctly updated in Jamf after the upgade and a to authenticate
+## to various FileVault prompts so the user is not burdened with repeated authentications.
+
 ## Remove remnants of a failed install
-if [ -e /macOS\ Install\ Data ]
+if [[ -e /macOS\ Install\ Data ]]
 then
 rm -r /macOS\ Install\ Data
 fi
+
 ## Write out a local script (but don't launch it) and a launch daemon to run a recon
 ## after the OS is upgraded.
 cat <<EOF >/Library/Scripts/UpdateInventory
@@ -345,13 +528,26 @@ do
 sleep 1
 osVers=\$( sw_vers -productVersion )
 done
-## Wait 10 mins for network connectivity
-sleep 600
+
+## Wait till the JSS is Reachable or 10 mins for network connectivity.
+JSSReachable=\$(jamf checkJSSConnection -retry 0 | grep JSS)
+while [ "\$JSSReachable" != "The JSS is available." ]
+do
+echo "Waiting for the JSS to be reachable."
+sleep 5
+Counter=\$((Counter + 1))
+JSSReachable=\$(jamf checkJSSConnection -retry 0 | grep JSS)
+if [ "\$Counter" == 120 ]
+then
+echo "Waited for 10 mins. Giving up."
+JSSReachable="The JSS is available."
+fi
+done
 ## Run a recon to upgrade the jss
 "\$jamfBinary" recon
-rm /Library/LaunchDaemons/com.electric.UpdateInventory.plist
+rm /Library/LaunchDaemons/net.$OrgName.UpdateInventory.plist
 rm /Library/Scripts/UpdateInventory
-launchctl unload /Library/LaunchDaemons/com.electric.UpdateInventory.plist
+launchctl unload /Library/LaunchDaemons/net.$OrgName.UpdateInventory.plist
 EOF
 chown root:wheel /Library/Scripts/UpdateInventory
 chmod 755 /Library/Scripts/UpdateInventory
@@ -361,7 +557,7 @@ echo '<?xml version="1.0" encoding="UTF-8"?>
 <plist version="1.0">
 <dict>
 <key>Label</key>
-<string>com.electric.UpdateInventory</string>
+<string>net.$OrgName.UpdateInventory</string>
 <key>Program</key>
 <string>/Library/Scripts/UpdateInventory</string>
 <key>RunAtLoad</key>
@@ -369,18 +565,13 @@ echo '<?xml version="1.0" encoding="UTF-8"?>
 <key>KeepAlive</key>
 <true/>
 </dict>
-</plist>' > /Library/LaunchDaemons/com.electric.UpdateInventory.plist
-chown root:wheel /Library/LaunchDaemons/com.electric.UpdateInventory.plist
-chmod 644 /Library/LaunchDaemons/com.electric.UpdateInventory.plist
-
-## Set the inital timer to 300 which will end up equating to 5 mins.
-## We use let here so it is sure to assign the variable as a number.
-## Probably not necessary but just in case.
-let Counter="300"
+</plist>' > /Library/LaunchDaemons/net.$OrgName.UpdateInventory.plist
+chown root:wheel /Library/LaunchDaemons/net.$OrgName.UpdateInventory.plist
+chmod 644 /Library/LaunchDaemons/net.$OrgName.UpdateInventory.plist
 
 ## Check for the existence of the output file from the JAMF helper command
 ## left over from previous executions.
-if [ -e /tmp/UserInput ]
+if [[ -e /tmp/UserInput ]]
    then
    rm /tmp/UserInput
 fi
@@ -395,14 +586,11 @@ fi
 
 RebootMsg="Your computer will begin the upgrade
 process to mac $macOSName $macOSVersion
-in 5 mins.
-
+in $Minutes mins.
 Please save all work and quit any open applications.
-
 Click Reboot to start this process immediately."
 
 FinalRebootMessage="Your computer will begin the upgrade in 1 minute.
-
 Please save all work and quit all applications now."
 
 "$JAMFHelperPath" -windowType utility -title "$JAMFHelperTitle" \
@@ -423,19 +611,19 @@ UserResponse=$(cat /tmp/UserInput)
 ## of the loop right away. One more subtraction from the counter variable would occur causing it to equal
 ## 0 which would also cause the loop to end and FileVault to enable. We could use a break statement here to
 ## but I liked this method.
-## If the user response has not equated to 0 then we'll pop uo a window displaying that there is only 60
+## If the user response has not equated to 0 then we'll pop up a window displaying that there is only 60
 ## seconds left before the macOS update is started and a reboot happens. We must get the PID of the previous jamfHelper
 ## process and disown it first (to prevent unnecessary error messages) then kill it before we display the new
 ## message.
 
-if [ "$UserResponse" == "0" ]
+if [[ "$UserResponse" == "0" ]]
   then
-     echo "User Choose to reboot. Starting $macOSName $macOSVersion Update."
+     ScriptLogging "User Choose to reboot. Starting $macOSName $macOSVersion Update."
      Counter="1"
-elif [ "$Counter" == 60 ]
+elif [[ "$Counter" == 60 ]]
   then
      jamfHelperUID=$(pgrep jamfHelper)
-     disown $jamfHelperUID
+     disown "$jamfHelperUID"
      killall jamfHelper
      "$JAMFHelperPath" -windowType utility -title "$JAMFHelperTitle" \
      -icon "$JAMFHelperIcon" -iconSize 96 -heading "$JAMFHelperHeading" -alignHeading center -description "$FinalRebootMessage" \
@@ -445,17 +633,17 @@ sleep 1
 Counter=$((Counter - 1))
 done
 ## Remove the named pipe
-if [ -e /tmp/UserInput ]
+if [[ -e /tmp/UserInput ]]
    then
    rm /tmp/UserInput
 fi
 jamfHelperUID=$(pgrep jamfHelper)
-disown $jamfHelperUID
+disown "$jamfHelperUID"
 killall jamfHelper
-echo "Executing $macOSName $macOSVersion Upgrade Policy"
+ScriptLogging "Executing $macOSName $macOSVersion Upgrade Policy"
 sleep 3
-## Delete the update countfile once just so it's gone
-rm -r $UpdateAttemptsFile
+## Delete the update count file once just so it's gone
+rm -r "$UpdateAttemptsFile"
 
 ## We'll add a JAMF Helper full screen window here because it looks nicer and is more restrictive than a progress bar.
 ## Since it will be a FS window we must remember to set it as a background process so the installer can actually run.
@@ -466,17 +654,18 @@ FSheading="Please wait as we prepare your computer for the $macOSName $macOSVers
 FSdescription="
 This process will take approximately 5-10 minutes.
 Once completed your computer will reboot and begin the upgrade."
-icon=/System/Library/CoreServices/CoreTypes.bundle/Contents/Resources/FinderIcon.icns
+
 ## Launch jamfHelper
-"$JAMFHelperPath" -windowType fs -title "" -icon "$icon" -heading "$FSheading" -description "$FSdescription" &
-##Make sure FV does an authenticated restart
-##Might not be necessary but can't hurt
-if [[ ${osVers} -ge 8 ]]; then
+"$JAMFHelperPath" -windowType fs -title "" -icon "$JAMFHelperIcon" -heading "$FSheading" -description "$FSdescription" &
+
+##Make sure FV does an authenticated restart which might not be necessary but can't hurt
+if [[ ${osVersMinor} -ge 8 ]]; then
      FDE=$(fdesetup status | grep "Off")
-     if [ "$FDE" = "" ]; then
-           ## only write out launch agent if os equal to sierra or higher otherwise it will cause the upgrade to fail
-           if [[ ${osVers} -ge 12 ]]; then
-       echo "Write out the a Launch Agent to make sure FV Authenticated restarts during the upgrade work as expected."
+     if [[ "$FDE" = "" ]]
+     then
+           ## only write out launch agent if the OS is equal to macOS Sierra or higher otherwise it will cause the upgrade to fail
+           if [[ ${osVersMinor} -ge 12 ]]; then
+       ScriptLogging "Write out a Launch Agent to make sure FV Authenticated restarts during the upgrade work as expected."
        cat <<EOF >/Library/LaunchAgents/com.apple.install.osinstallersetupd.plist
 <?xml version="1.0" encoding="UTF-8"?>
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
@@ -502,7 +691,7 @@ if [[ ${osVers} -ge 8 ]]; then
 </dict>
 </plist>
 EOF
-       echo "Setting the correct permissions on and launch the launch agent."
+       ScriptLogging "Setting the correct permissions on and launch the launch agent."
        /usr/sbin/chown root:wheel /Library/LaunchAgents/com.apple.install.osinstallersetupd.plist
        /bin/chmod 644 /Library/LaunchAgents/com.apple.install.osinstallersetupd.plist
        userID=$( id -u ${loggedInUser} )
@@ -510,14 +699,14 @@ EOF
        ## End 10.12 Check
        fi
      else
-       echo "FileVault 2 is not enabled."
+       ScriptLogging "FileVault 2 is not enabled."
      fi
    fi
    
 for USER_HOME in /Users/*
   do
-    USER_UID=`basename "${USER_HOME}"`
-    if [ "${USER_UID}" != "Shared" ] 
+    USER_UID=$(basename "${USER_HOME}")
+    if [[ "${USER_UID}" != "Shared" ]]
     then 
         /usr/bin/defaults write "${USER_HOME}"/Library/Preferences/com.apple.SetupAssistant LastPreLoginTasksPerformedBuild -string "$macOSBuild"
         /usr/bin/defaults write "${USER_HOME}"/Library/Preferences/com.apple.SetupAssistant LastPreLoginTasksPerformedVersion -string "$macOSVersion"
@@ -528,41 +717,94 @@ for USER_HOME in /Users/*
   done
   
 ## Write a dummy receipt to track the upgrades
-touch /Library/Application\ Support/JAMF/Receipts/Electric-"$macOSName"-"$macOSVersion"pkg
+touch /Library/Application\ Support/JAMF/Receipts/"$OrgName"-"$macOSName"-"$macOSVersion".pkg
 
 ## Call the installer
 "$jamfBinary" install -package "$PackageName" -path /Library/Application\ Support/JAMF/Waiting\ Room -target /  2>&1
+
+ScriptLogging "Deleting cached package from waiting room to free up space...."
+/bin/rm -rf "$CachedmacOSFile"
+      
+# Check if macOS installation app exists in the /Applications folder
+# If it exists, run startosinstall. If not, close Jamf Helper window and exit with error code
+if [[ -e "/Applications/Install macOS $macOSName.app" ]]
+then
+  ScriptLogging "/Applications/Install macOS $macOSName.app is ready to begin installation...."
+  ScriptLogging "Running caffeinate command so the Mac doesn't fall asleep"
+  caffeinate -d -i -m -u &
+  caffeinatepid=$!
+  sleep 2
+  # Running installation
+  ScriptLogging "Running the upgrade installation...."
+  /Applications/Install\ macOS\ "$macOSName".app/Contents/Resources/startosinstall --agreetolicense --forcequitapps --nointeraction
+else
+  ScriptLogging "/Applications/Install macOS $macOSName.app not found. Exiting with error...."
+  killall jamfHelper
+  exit 1
+  fi
+
 sleep 300
 killall jamfHelper
 ### End Policy Call
 }
-#################### End macOS Installation #############################################
-#########################################################################################
 
-#########################################################################################
 ######################### Begin macOS Update  ###########################################
 macOSUpdate()
 {
- 
- checkmacOSCache
-   
- if [ "$macOSIsCached" == "No" ]
+## Validate that the Mac is ready to update based on the existence of an installer and power status.
+
+if [[ -e "/Applications/Install macOS $macOSName.app" ]]
+then
+  ScriptLogging "/Applications/Install macOS $macOSName.app exists and is ready to begin installation...."
+else 
+checkmacOSCache
+fi
+
+ if [[ "$macOSIsCached" == "No" ]]
  then 
-    echo "Triggering cache macOS policy."
-    "$jamfBinary" policy -event cachemacOS
+    ScriptLogging "Reset the update counter and trigger cache macOS policy."
+    # The fle is not simply removed to do checks elsewhere in the script.
+    if [[ -e "$UpdateAttemptsFile" ]]
+    then
+      /bin/echo 0 > "$UpdateAttemptsFile"
+    fi
+    "$jamfBinary" policy -event "$cachemacOS"
  else
     checkPower
-    if [ "$PowerStatus" == "Bad" ]
+    if [[ "$PowerStatus" == "Bad" ]]
     then
-       echo "No sufficient power to begin $macOSName $macOSVersion Upgrade."
+       ScriptLogging "No sufficient power to begin $macOSName $macOSVersion Upgrade."
     else
-       echo "$macOSName $macOSVersion  is cached and machine has enough power. Beginning install routine"
+       ScriptLogging "$macOSName $macOSVersion is cached and machine has enough power. Beginning install routine"
        startUpdate
     fi
  fi 
 }
-################### End macOS Update ###################################################
-#########################################################################################
 
-### All the function calls are here  
+######################### Begin macOS Version Check  ###################################
+macOSVersionCheck() {
+  # This function checks if the computer is already running the version of macOS that script is upgrading to.
+  # If it is, the cached installer is deleted, recon is called to take computer out of upgrade Smart Group
+  # and the script exits. This addresses issues where users have upgraded to the defined version outside of the script.
+
+  if echo "$osVersFull $macOSUpgradeVersion" | awk '{exit $1>=$2?0:1}'
+  then
+    ScriptLogging "This Mac is already running macOS $osVersFull which is the same major version as the upgrade."
+    ScriptLogging "Deleting cached installer and update attempts file, running recon and exiting...."
+    rm -r "$CachedmacOSFile"
+    rm -rf "$CachedmacOSFile.cache.xml" &> /dev/null
+    if [[ -e "$UpdateAttemptsFile" ]]
+    then
+      rm -rf "$UpdateAttemptsFile"
+    fi
+    "$jamfBinary" recon
+    exit 0
+  fi
+}  
+
+###############
+##### MAIN ####
+###############
+## All the function calls are here
+macOSVersionCheck 
 macOSUpdate
