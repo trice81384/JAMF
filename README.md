@@ -7,5 +7,5 @@
 2. macOSUpgrades: Used to prompt a user to install a cached macOS installer package and force the installation after x number of attempts.
 3. macOSUpgrades_SelfService: Allows a user to install a cached macOS installer package from Self Service. Can be used in conjunction with macOSUpgrades or by itself.
 
-### Once running macOSUpgrades and macOSUpgrades_SelfService administrators should stop running or disable macOSUpgrades_CheckCachedInstaller
-### These scripts assume the macOS Installer is wrapped in a pkg for initial download/caching. While other packaging methods such as DMGs can be used they will require additional steps in order to be supported by these scripts.
+#### Once running macOSUpgrades and macOSUpgrades_SelfService administrators should stop running or disable macOSUpgrades_CheckCachedInstaller
+#### These scripts assume the macOS Installer is wrapped in a pkg for initial download/caching. While other packaging methods such as DMGs can be used they will require additional steps in order to be supported by these scripts.
