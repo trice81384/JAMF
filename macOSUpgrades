@@ -91,79 +91,79 @@ fi
 
 case "$macOSName" in
      "Mojave" )
-	     #Version of the macOS to be installed
+       #Version of the macOS to be installed
        macOSVersion=""
 
        #Version of the macOS Installer Application (CFBundleVersion)
        InstallerVersion=""
 
-	     #Build of the macOS to be installed
+       #Build of the macOS to be installed
        macOSBuild=""
 
-	     #Name of the OS Installer Package
-	     PackageName=""
+       #Name of the OS Installer Package
+       PackageName=""
 		
-	     ##Location of cached Installer
-	     CachedmacOSFile="/Library/Application Support/Jamf/Waiting Room/$PackageName"
+       ##Location of cached Installer
+       CachedmacOSFile="/Library/Application Support/Jamf/Waiting Room/$PackageName"
 
-	     #Expected Size of the Cached installer
-	     CachedFileSize=""
+       #Expected Size of the Cached installer
+       CachedFileSize=""
 		
        ## Free space needed to cache package measured in Gigibytes
        ## Found by taking the amount of GB needed, converting to Gi, and rounding to the next whole number
        ## GB * (1000^3) / (1024^3)
        needed_free_space=""
 
-	     #Catalina Cache Trigger
+       #Catalina Cache Trigger
        cachemacOS="cache$macOSName"
-	  ;;
+     ;;
 
-	   "Catalina" )
-		   #Version of the macOS to be installed
-		   macOSVersion=""
+     "Catalina" )
+       #Version of the macOS to be installed
+       macOSVersion=""
 
        #Version of the macOS Installer Application (CFBundleVersion)
        InstallerVersion=""
 		
-		   #Build of the macOS to be installed
-		   macOSBuild=""
+       #Build of the macOS to be installed
+       macOSBuild=""
+    	
+       #Name of the OS Installer Package
+       PackageName=""
 		
-		   #Name of the OS Installer Package
-		   PackageName=""
+       #Location of cached Installer
+       CachedmacOSFile="/Library/Application Support/Jamf/Waiting Room/$PackageName"
 		
-		   #Location of cached Installer
-		   CachedmacOSFile="/Library/Application Support/Jamf/Waiting Room/$PackageName"
-		
-		   #Expected Size of the Cached installer
-		   CachedFileSize=""
+       #Expected Size of the Cached installer
+       CachedFileSize=""
 		
        ## Free space needed to cache package measured in Gigibytes
        ## Found by taking the amount of GB needed, converting to Gi, and rounding to the next whole number
        ## GB * (1000^3) / (1024^3)
        needed_free_space=""
 
-		   #Catalina Cache Trigger
+       #Catalina Cache Trigger
        cachemacOS="cache$macOSName"
-	  ;;
+     ;;
 	
-	   "BigSur" )
-		   #Version of the macOS to be installed
-		   macOSVersion=""
+     "BigSur" )
+       #Version of the macOS to be installed
+       macOSVersion=""
 
        #Version of the macOS Installer Application (CFBundleVersion)
        InstallerVersion=""
 		
-		   #Build of the macOS to be installed
-		   macOSBuild=""
+       #Build of the macOS to be installed
+       macOSBuild=""
 		
-		   #Name of the OS Installer Package
-		   PackageName=""
+       #Name of the OS Installer Package
+       PackageName=""
 		
-		   #Location of cached Installer
-		   CachedmacOSFile="/Library/Application Support/Jamf/Waiting Room/$PackageName"
+       #Location of cached Installer
+       CachedmacOSFile="/Library/Application Support/Jamf/Waiting Room/$PackageName"
 		
-		   #Expected Size of the Cached installer
-		   CachedFileSize=""
+       #Expected Size of the Cached installer
+       CachedFileSize=""
 		
        ## Free space needed for install measured in Gigibytes
        ## Found normally by taking the amount of GB needed for the pkg, converting to Gi, and rounding to the next whole number
@@ -171,9 +171,9 @@ case "$macOSName" in
        ## However Apple requires much more free space for Big Sur. Apple recommends 26GB but historically more is required.
        needed_free_space="45"
 
-		   #Big Sur Cache Trigger
+       #Big Sur Cache Trigger
        cachemacOS="cache$macOSName"
-	  ;;
+     ;;
 
      "Monterey" )
        #Version of the macOS to be installed
@@ -204,10 +204,10 @@ case "$macOSName" in
        cachemacOS="cache$macOSName"
     ;;
 
-	  *)
-		   echo "Unknown OS input in parameter 4, exiting with error...."
-		   exit 1
-	  ;;
+     *)
+       echo "Unknown OS input in parameter 4, exiting with error...."
+       exit 1
+    ;;
 esac
 
 ## Check the number of seconds passed in for a reboot delay
