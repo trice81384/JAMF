@@ -1,141 +1,229 @@
 #!/bin/bash
 
-## Version 2
-## 12/21/21
+## Version 3
+## 4/21/22
 ## Tom Rice (Macadmins: trice Github: trice81384)
 
-### This script is designed to be run once a day via Jamf and check for a cached macOS installer. 
-### If the installer is not cached or is cached improperly (based on size) then another cache attempt is executed.
-### A dummy receipt is also created to be used in conjunction with a smart group to present the installer in Self Service once cached.
+### This script is designed to be run once a day from Jamf and check for a properly cached macOS installer.
+### If the installer exists and is the correct name and size the script exits otherwise it attempts to cache the installer.
+### A dummy receipt is created once the package is successfully cached to be used in conjunction with a smart group to present the installer in Self Service.
+### The purpose for caching the package is so that it can be used for future macOS Upgrades when ready.
+### A policy to cache the installer must exist in Jamf so it can be called by the execution triggers in this script.
 
-### This script is designed to call another Jamf policy via a custom trigger that is set to cache an OS Installer package.
-### In most cases this will be a PKG that when run (via another method) will place the OS Installer in the Applications folder.
-### It is recommended he policy that is called should be scoped to all computers with a custom trigger that is named 'cachemacOSName'.
-### Where macOSName is the name of the OS you want to cache.
-### It is also recommended that that policy that runs this script is scoped to only the machines you wish to upgrade.
-
-### It may be necessary to package some larger OS Installers as DMGs. The logic for DMGs is not covered in this script. 
-### Some larger DMGs can be split into smaller parts, wrapped in PKGs, installed, the DMGs mounted + reassembled, and
-### then the OS Installer it contains copied to the Waiting Room. In which case this script can then be used to validate
-### the cached package.
+ScriptLogging(){
+# Function to provide logging of the script's actions either to the console or the log file specified.
+### Developed by Rich Trouton
+### https://github.com/rtrouton
+    local LogStamp=$(date +%Y-%m-%d\ %H:%M:%S)
+    if [[ -n "$2" ]]
+    then
+      LOG="$2"
+    else
+      LOG="PATH TO LOG FILE HERE"
+    fi
+    
+    ## To output to a log file append ' >> $LOG' to the below echo statement 
+    echo "$LogStamp" " $1"
+}
 
 ################### Define Global Variables #############################################
 
 ## Parameter 4 passed in from Jamf will set the name of the macOS to be installed.
+## This value is used in the case statement below to define parameters for the OS as well
+## as elsewhere throughout the script such as Jamf Helper dialogs.
 macOSName="$4"
 
-## Fill in the values as needed for the version of the OS you'll be caching. 
-## Add additional OS Versions as needed.
-## Some Values are:
+## Fill in the values as needed for the version of the OS you'll be installing while adding additional OS Versions as needed.
+## Some possible values are:
 ## Mojave: Version: 10.14.6, Build: 18G84
 ## Catalina: Version: 10.15.7, Build: 19H15
 ## Big Sur: Version: 11.6, Build: 20G164
+## Monterey: Version: 12.3.1, Build: 21E258, Installer Version: 17303
 
 case "$macOSName" in
      "Mojave" )
-	    #Version of the macOS to be installed
-        macOSVersion=""
+	     #Version of the macOS to be installed
+       macOSVersion=""
 
-	    #Build of the macOS to be installed
-        macOSBuild=""
+       #Version of the macOS Installer Application (CFBundleVersion)
+       InstallerVersion=""
 
-	    #Name of the OS Installer Package
-	    PackageName=""
-		
-	    #Location of cached Installer
-	    CachedmacOSFile="/Library/Application Support/Jamf/Waiting Room/$PackageName"
+	     #Build of the macOS to be installed
+       macOSBuild=""
 
-	    #Expected Size of the Cached installer
-	    CachedFileSize=""
+	     #Name of the OS Installer Package
+	     PackageName=""
 		
-        ## Free space needed to cache package measured in Gigibytes
-        ## Found by taking the amount of GB needed, converting to Gi, and rounding to the next whole number
-        ## GB * (1000^3) / (1024^3)
-        needed_free_space=""
+	     ##Location of cached Installer
+	     CachedmacOSFile="/Library/Application Support/Jamf/Waiting Room/$PackageName"
 
-	    #Catalina Cache Trigger
-        cachemacOS="cache$macOSName"
-	 ;;
+	     #Expected Size of the Cached installer
+	     CachedFileSize=""
+		
+       ## Free space needed to cache package measured in Gigibytes
+       ## Found by taking the amount of GB needed, converting to Gi, and rounding to the next whole number
+       ## GB * (1000^3) / (1024^3)
+       needed_free_space=""
 
-	 "Catalina" )
-		#Version of the macOS to be installed
-		macOSVersion=""
-		
-		#Version of the macOS to be installed
-		macOSBuild=""
-		
-		#Name of the OS Installer Package
-		PackageName=""
-		
-		#Location of cached Installer
-		CachedmacOSFile="/Library/Application Support/Jamf/Waiting Room/$PackageName"
-		
-		#Expected Size of the Cached installer
-		CachedFileSize=""
-		
-        ## Free space needed to cache package measured in Gigibytes
-        ## Found by taking the amount of GB needed, converting to Gi, and rounding to the next whole number
-        ## GB * (1000^3) / (1024^3)
-        needed_free_space=""
+	     #Catalina Cache Trigger
+       cachemacOS="cache$macOSName"
+	  ;;
 
-		#Catalina Cache Trigger
-        cachemacOS="cache$macOSName"
-	;;
+	   "Catalina" )
+		   #Version of the macOS to be installed
+		   macOSVersion=""
+
+       #Version of the macOS Installer Application (CFBundleVersion)
+       InstallerVersion=""
+		
+		   #Build of the macOS to be installed
+		   macOSBuild=""
+		
+		   #Name of the OS Installer Package
+		   PackageName=""
+		
+		   #Location of cached Installer
+		   CachedmacOSFile="/Library/Application Support/Jamf/Waiting Room/$PackageName"
+		
+		   #Expected Size of the Cached installer
+		   CachedFileSize=""
+		
+       ## Free space needed to cache package measured in Gigibytes
+       ## Found by taking the amount of GB needed, converting to Gi, and rounding to the next whole number
+       ## GB * (1000^3) / (1024^3)
+       needed_free_space=""
+
+		   #Catalina Cache Trigger
+       cachemacOS="cache$macOSName"
+	  ;;
 	
-	 "Big Sur" )
-		#Version of the macOS to be installed
-		macOSVersion=""
-		
-		#Version of the macOS to be installed
-		macOSBuild=""
-		
-		#Name of the OS Installer Package
-		PackageName=""
-		
-		#Location of cached Installer
-		CachedmacOSFile="/Library/Application Support/Jamf/Waiting Room/$PackageName"
-		
-		#Expected Size of the Cached installer
-		CachedFileSize=""
-		
-        ## Free space needed to cache package measured in Gigibytes
-        ## Found by taking the amount of GB needed, converting to Gi, and rounding to the next whole number
-        ## GB * (1000^3) / (1024^3)
-        needed_free_space=""
+	   "BigSur" )
+		   #Version of the macOS to be installed
+		   macOSVersion=""
 
-		#Big Sur Cache Trigger
-        cachemacOS="cache$macOSName"
-	;;
-	
-	*)
-		echo "Unknown OS input in parameter 4, exiting with error...."
-		exit 1
-	;;
-	esac
+       #Version of the macOS Installer Application (CFBundleVersion)
+       InstallerVersion=""
+		
+		   #Build of the macOS to be installed
+		   macOSBuild=""
+		
+		   #Name of the OS Installer Package
+		   PackageName=""
+		
+		   #Location of cached Installer
+		   CachedmacOSFile="/Library/Application Support/Jamf/Waiting Room/$PackageName"
+		
+		   #Expected Size of the Cached installer
+		   CachedFileSize=""
+		
+       ## Free space needed for install measured in Gigibytes
+       ## Found normally by taking the amount of GB needed for the pkg, converting to Gi, and rounding to the next whole number
+       ## GB * (1000^3) / (1024^3)
+       ## However Apple requires much more free space for Big Sur. Apple recommends 26GB but historically more is required.
+       needed_free_space="45"
+
+		   #Big Sur Cache Trigger
+       cachemacOS="cache$macOSName"
+	  ;;
+
+     "Monterey" )
+       #Version of the macOS to be installed
+       macOSVersion=""
+
+       #Version of the macOS Installer Application (CFBundleVersion)
+       InstallerVersion=""
+
+       #Build of the macOS to be installed
+       macOSBuild=""
+
+       #Name of the OS Installer Package
+       PackageName=""
+
+       #Location of cached Installer
+       CachedmacOSFile="/Library/Application Support/Jamf/Waiting Room/$PackageName"
+
+       #Expected Size of the Cached installer
+       CachedFileSize=""
+    
+       ## Free space needed for install measured in Gigibytes
+       ## Found normally by taking the amount of GB needed for the pkg, converting to Gi, and rounding to the next whole number
+       ## GB * (1000^3) / (1024^3)
+       ## However Apple requires much more free space for Monterey. Apple recommends 26GB but historically more is required.
+       needed_free_space="35"
+    
+       #Monterey Cache Trigger
+       cachemacOS="cache$macOSName"
+    ;;
+
+	  *)
+		   echo "Unknown OS input in parameter 4, exiting with error...."
+		   exit 1
+	  ;;
+esac
+
+## Get the major version of macOS that computer is upgrading to
+macOSUpgradeVersionMajor=$( echo "$macOSVersion" | cut -d. -f1 )
+## Get the major/minor version of macOS that computer is upgrading to
+macOSUpgradeVersion=$( echo "$macOSVersion" | cut -d. -f1,2 )
+## Get major version of OS X currently running on Mac
+osVersMajor=$( sw_vers -productVersion | cut -d. -f1 )
+## Get minor version of OS X currently running on Mac
+osVersMinor=$( sw_vers -productVersion | cut -d. -f2 )
+## Get major/minor version of OS X currently running on Mac
+osVersFull=$( sw_vers -productVersion | cut -d. -f1,2 )
+## Variable to see if the installed is cached
+macOSIsCached=""
 
 ## Free space on target disk measured in Gigibytes
 available_free_space=$(df -g / | tail -1 | awk '{print $4}')
+
+## JAMF and Cocoa Dialog Stuff
+JAMFHelperPath="/Library/Application Support/JAMF/bin/jamfHelper.app/Contents/MacOS/jamfHelper"
+JAMFHelperIcon="/System/Library/CoreServices/CoreTypes.bundle/Contents/Resources/AlertStopIcon.icns"
+JAMFHelperTitle="WPP: macOS $macOSName Update"
+JAMFHelperHeading="$macOSName Update"
+JAMFHelperTextAlignment="left"
+JAMFHelperHeaderAlignment="left"
+
 ## Location of the macOS Upgrade deferral counter
 UpdateAttemptsFile="/etc/.macOSUpdateAttempts.txt"
 
 ## Check to see if any remnants from a previous OS upgrade deferral process exist. Remove them if they do.
-echo "Removing previous OS upgrade deferral file."
-if [[ -e "$UpdateAttemptsFile" ]]
+ScriptLogging "Removing previous OS upgrade deferral file."
+if [ -e "$UpdateAttemptsFile" ]
 then
   rm -rf $UpdateAttemptsFile
 fi
 
-######################### Existing macOS Downloads Check  ####################################
+######################### JAMF Binary Check  ############################################
+
+if [ -e /usr/local/jamf/bin/jamf ]
+then
+	# JAMF Binary found at 9.81 or later location
+	ScriptLogging "JAMF Binary found at 9.81 or later location"
+	jamfBinary="/usr/local/jamf/bin/jamf"
+	#
+elif [ -e /usr/local/bin/jamf ]
+then
+	# Alias to the JAMF Binary found
+	ScriptLogging "Alias to the JAMF Binary found"
+	jamfBinary="/usr/local/bin/jamf"
+	#
+else
+	ScriptLogging "JAMF Binary not found"
+fi
+
+######################### Existing macOS Downloads Check  ###############################
 ## Check to see if previous macOS installers have been downloaded and if so remove them.
+## by checking to see if the version of the installer matches the version of the OS we want to install
+## so we don't delete a valid installer unnecessarily.
 
 for OSInstaller in /Applications/*Install\ macOS*
 do
    if [[ -e "$OSInstaller" ]]
    then
-    ## Check to see if the build of the installer matches the build of the OS we want to install
-    ## so we don't delete a valid installer unnecessarily.
-    InstallerBuild=$(defaults read "$OSInstaller"/Contents/Info.plist DTSDKBuild)
-     if [[ "$InstallerBuild" != "$macOSBuild" ]]
+    InstallerBundleVersion=$(defaults read "$OSInstaller"/Contents/Info.plist CFBundleVersion)
+     if [[ "$InstallerBundleVersion" != "$InstallerVersion" ]]
      then
        ScriptLogging "Old $OSInstaller found. Deleting."
        rm -rf "$OSInstaller"
@@ -144,61 +232,161 @@ do
 done
 
 ######################### Free Space Check ###############################################
-##  Check if sufficient space for caching the macOS installer package.
+FreeSpaceCheck()
+{
+## If installing macOS 11 or greater, the needed_free_space value is kept as indicated in the case statement
+## at the top of this script. Otherwise, it is set below as follows:
+## If the machine is currently running Yosemite or lower than it needs 19GB of free space prior to
+## upgrading otherwise it needs 13GB.
 
-if [[ "$available_free_space" -ge "$needed_free_space" ]]
+if [[ "$macOSUpgradeVersionMajor" -lt "11" ]]
 then
-  echo "Sufficient free disk to cache and install $macOSVersion."
-else
-  echo "Needed free space to cache macOS $macOSVersion installation is $needed_free_space GB."  
-  echo "Not enough free space to cache. Exiting with error code...."
-  exit 1
+  if [[ "$osVersMinor" -le "10" ]]
+  then
+    needed_free_space="19"
+  else
+    needed_free_space="13"
+  fi
 fi
 
-######################### JAMF Binary Check  ############################################
-## This if statement is designed to check for the location of the Jamf binary in multiple 
-## places due to changes in OSX associated with JAMF's upgrade to version 9.81.
-## References to the JAMF Binary must be changed to "$jamfBinary".
+## Get the size of the cached macOS Installer in GB.
+## Since this simplified division on returns whole numbers we'll pad the result by 1 GB account for files
+## that night be a bit bigger. This also accounts for some disparities between the Finder and the shell
+CachedGBSize=$(( (CachedFileSize / 1024 / 1024 / 1024) + 1 ))
 
-if [[ -e /usr/local/jamf/bin/jamf ]]
+## Now add this number to the amount of free space needed to install macOS so we can determine the additional
+## amount of free space needed to cache the installer and then install it.
+cached_free_space=$(( CachedGBSize + needed_free_space ))
+
+## Free space on target disk measured in Gigibytes
+available_free_space=$(df -g / | tail -1 | awk '{print $4}')
+
+## Check if sufficient space for caching macOS installation. Checking for enough free space to both store the cached package AND run it
+## later ensures that there is enough space if installation will take place shortly after the package is cached locally.
+if [[ "$available_free_space" -ge "$cached_free_space" ]]
 then
-	# JAMF Binary found at 9.81 or later location
-	echo "JAMF Binary found at 9.81 or later location"
-	jamfBinary="/usr/local/jamf/bin/jamf"
-	#
-elif [[ -e /usr/local/bin/jamf ]]
-then
-	# Alias to the JAMF Binary found
-	echo "Alias to the JAMF Binary found"
-	jamfBinary="/usr/local/bin/jamf"
-	#
+  ScriptLogging "Needed free space to cache and upgrade from macOS $osVersMajor.$osVersMinor to $macOSVersion set to $cached_free_space GB."
+  ScriptLogging "$available_free_space gigabytes found as free space on boot drive."
+  ScriptLogging "Sufficient free disk to cache $macOSVersion."
 else
-	echo "JAMF Binary not found"
-fi
+  ScriptLogging "Needed free space to cache and upgrade from macOS $osVersMajor.$osVersMinor to $macOSVersion set to $cached_free_space GB."
+  ScriptLogging "$available_free_space gigabytes found as free space on boot drive."
+  ScriptLogging "Not enough free space to cache macOS. Displaying message to user."
+            DiskSpaceMSG="Your Mac does not have enough
+free space to upgrade to 
+macOS $macOSName $macOSVersion
+
+At least $cached_free_space GB of free space is needed.
+
+Please back up and remove files that are
+no longer needed so that the installer may run."
+            UserResponse=$("$JAMFHelperPath" -windowType utility -title "$JAMFHelperTitle" \
+                  -icon "$JAMFHelperIcon" -heading "$JAMFHelperHeading" -alignHeading left -description "$DiskSpaceMSG" \
+                 -alignDescription left -button1 "Quit" )
+    if [ $UserResponse == 0 ] || [ $UserResponse == 239 ]
+    then
+      ScriptLogging "User acknowledged disk space alert. Exiting with error code...."
+      exit 1
+    fi
+  fi
+}
 
 ######################### Cache Check ###################################################
-## Check to see if a macOS installer package has previously been cached correctly. If not cache it.
+checkmacOSCache()
+{
 
-if [[ -e "$CachedmacOSFile" ]]
+## Boot Drive Format Check
+## macOS Upgrades from 10.13+ require the drive that it is to be installed on (for the purposes of this script
+## that is the boot drive) to be formatted as APFS. Their installers have also removed the ability to convert the drive
+## during unattended installs. If the current boot drive is not formatted as APFS we don't cache the installer and notify the user.
+
+BootDriveFormat=$(/usr/libexec/PlistBuddy -c "print :FilesystemType" /dev/stdin <<< $(diskutil info -plist /))
+
+if [[ "$BootDriveFormat" == "apfs" ]]
 then
-	if [[ $(stat -f %z "$CachedmacOSFile") -ge "$CachedFileSize" ]]
+  ScriptLogging "Boot drive is formatted as $BootDriveFormat."
+else
+  ScriptLogging "Boot drive is formatted as $BootDriveFormat. Unable to upgrade to $macOSVersion."  
+            FormatMSG="Unable to upgrade to macOS $macOSName $macOSVersion
+
+The boot drive on this Mac is
+currently formatted as \"$BootDriveFormat\".
+
+It must be reformatted to APFS.
+
+Please contact your local support team to assist."
+            UserResponse=$("$JAMFHelperPath" -windowType utility -title "$JAMFHelperTitle" \
+                  -icon "$JAMFHelperIcon" -heading "$JAMFHelperHeading" -alignHeading left -description "$FormatMSG" \
+                 -alignDescription left -button1 "Quit" )
+  if [ $UserResponse == 0 ] || [ $UserResponse == 239 ]
+  then
+    ScriptLogging "User acknowledged format alert. Exiting with error code...."
+    exit 1
+  fi
+fi
+
+if [ -e "$CachedmacOSFile" ]
+then
+	if [[ `stat -f %z "$CachedmacOSFile"` -ge "$CachedFileSize" ]]
 	then
-		echo "$macOSName $macOSVersion Cached Fully"
-		## Added to create a dummy receipt to create a smart group to allow users to install from Self Service if desired.
+		ScriptLogging "$macOSName $macOSVersion Cached Fully"
+		macOSIsCached="Yes"
+		## Added to create a dummy receipt to allow users to install from Self Service if they chose to defer the update.
 		## Dummy receipt depends on if macOS is cached correctly.
-		if [[ ! -e /Library/Application\ Support/JAMF/Receipts/"$macOSName"-"$macOSVersion"_SS.pkg ]]
-		then
-			echo "Creating dummy receipt for Self Service Policy"
+		if [ ! -e /Library/Application\ Support/JAMF/Receipts/"$macOSName"-"$macOSVersion"_SS.pkg ]; then
+			ScriptLogging "Creating dummy receipt for Self Service Policy."
 			touch /Library/Application\ Support/JAMF/Receipts/"$macOSName"-"$macOSVersion"_SS.pkg 
+      ScriptLogging "Running a recon."
 			"$jamfBinary" recon
 		fi
+    ## Exit the script here so the additional cache check is not performed.
+    exit 0
 	else 
-		echo "$macOSName $macOSVersion not cached correctly. Removing failed download attempts and recaching"
-		rm -r "$CachedmacOSFile"
+		ScriptLogging "$macOSName $macOSVersion not cached correctly. Removing failed download attempts and recaching"
+		rm -r "$CachedmacOSFile" 
 		rm -r "$CachedmacOSFile.cache.xml" &> /dev/null
+		macOSIsCached="No"
 		"$jamfBinary" policy -event "$cachemacOS"
 	fi
 else
-	echo "$macOSName $macOSVersion installer not Found. Caching."
+	ScriptLogging "$macOSName $macOSVersion installer not Found. Caching."
+	macOSIsCached="No"
 	"$jamfBinary" policy -event "$cachemacOS"
+fi
+
+##Check to see if the cache policy finished and if so create a dummy receipt to use for a Self Service install,
+if [[ `stat -f %z "$CachedmacOSFile"` -ge "$CachedFileSize" ]]
+then
+	ScriptLogging "$macOSName $macOSVersion was cached successfully."
+	macOSIsCached="Yes"
+  ScriptLogging "Creating dummy receipt for Self Service Policy."
+  touch /Library/Application\ Support/JAMF/Receipts/"$macOSName"-"$macOSVersion"_SS.pkg
+  ScriptLogging "Running a recon."
+	"$jamfBinary" recon
+fi
+}
+
+## Check to see if the computer is running the same major version of macOS as the update (in case it was updated by other means).
+## Then check if the computer has an OS Installer in the applications folder. Which would mean it is the correct
+## version of the OS update to be run (an earlier versions did not get removed). 
+## If either of those conditions are true update the computer's status in Jamf. If not check to see if the macOS installer is cached.
+
+## Due to changes in Apple's number scheme the major version number starting in macOS 11 is the first digit so we must account for that.
+if [[ "$macOSUpgradeVersionMajor" -ge "11" ]]
+then
+  macOSUpgradeVersion="$macOSUpgradeVersionMajor"
+fi
+
+if echo "$osVersFull $macOSUpgradeVersion" | awk '{exit $1>=$2?0:1}'
+then
+  ScriptLogging "This Mac is already running macOS $osVersFull which is the same major version as the upgrade."
+  "$jamfBinary" recon
+elif [[ -e "/Applications/Install macOS $macOSName.app" ]]
+then
+  ScriptLogging "This Mac has the correct version of \"Install macOS $macOSName.app\" in the Applications folder."
+  "$jamfBinary" recon
+else
+  ScriptLogging "Checking to see if $PackageName is cached."
+  FreeSpaceCheck
+  checkmacOSCache
 fi
