@@ -926,9 +926,9 @@ fi
 done
 ## Run a recon to upgrade the jss
 "\$jamfBinary" recon
-rm /Library/LaunchDaemons/net.$FormattedOrgName.UpdateInventory.plist
+rm /Library/LaunchDaemons/com.$FormattedOrgName.UpdateInventory.plist
 rm /Library/Scripts/UpdateInventory
-launchctl unload /Library/LaunchDaemons/net.$FormattedOrgName.UpdateInventory.plist
+launchctl unload /Library/LaunchDaemons/com.$FormattedOrgName.UpdateInventory.plist
 EOF
 chown root:wheel /Library/Scripts/UpdateInventory
 chmod 755 /Library/Scripts/UpdateInventory
