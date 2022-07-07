@@ -532,7 +532,7 @@ fi
 
 ##Increment the try variable to reflect the amount of times a user has attempted to enter their password.
 try=$((try+1))
-ScriptLogging "This was user password change attempt $try"
+ScriptLogging "This was user password validation attempt $try"
 }
 
 successAlert () { # This notification function is not currently called but we'll keep it if we need to use it at some point.
@@ -731,6 +731,17 @@ This process may take some time."
 "$JAMFHelperPath" -windowType utility -title "$JAMFHelperTitle" \
 -icon "$JAMFHelperIcon" -iconSize 128 -heading "Upgrade Download" -alignHeading "$JAMFHelperHeaderAlignment" -description "$CacheMsg" \
 -alignDescription "$JAMFHelperAlignment" & 
+
+## Get the PID of the jamf binary if it happens to be running
+JamfPID=$(pgrep jamf)
+
+## If the jamf binary is running we need to wait before we call the caching policy trigger
+while [[ "$JamfPID" != "" ]]
+do 
+ScriptLogging "Jamf processes already running. Pausing for 60 seconds."
+sleep 60
+JamfPID=$(pgrep jamf)
+done
 
 "$jamfBinary" policy -event "$cachemacOS"
 "$jamfBinary" install -package "$PackageName" -path /Library/Application\ Support/JAMF/Waiting\ Room -target /  2>&1
@@ -949,7 +960,7 @@ Once completed your computer will reboot and begin the upgrade."
 if [[ "$osVersMinor" -ge 8 ]]
 then
      FDE=$( fdesetup status | grep "Off" )
-     if [ "$FDE" = "" ]
+     if [[ "$FDE" = "" ]]
      then
            ## only write out launch agent if the OS is equal to macOS Sierra or higher otherwise it will cause the upgrade to fail
            if [[ "$osVersMinor" -ge 12 ]]
@@ -1006,7 +1017,7 @@ for USER_HOME in /Users/*
   done
 
 ## Write a dummy receipt to track the upgrades
-touch /Library/Application\ Support/JAMF/Receipts/$FormattedOrgName-"$macOSName"-"$macOSVersion".pkg
+touch /Library/Application\ Support/JAMF/Receipts/"$FormattedOrgName"-"$macOSName"-"$macOSVersion".pkg
 
 # Running installation
 if [[ "$arch" == "arm64" ]] 

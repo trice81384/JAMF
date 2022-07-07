@@ -592,9 +592,11 @@ from Self Service.**"
         InformativeTextMsg="The update process was deferred.
 
 There are no more deferrals remaining.
-           
-macOS $macOSName $macOSVersion
-will automatically be installed tomorrow."
+macOS $macOSName $macOSVersion will be
+automatically installed tomorrow.
+
+**You may run the upgrade
+from Self Service before then.**" 
       fi
 
       "$JAMFHelperPath" -windowType utility -title "$JAMFHelperTitle" \
@@ -734,13 +736,13 @@ fi
 
 ##Increment the PasswordTry variable to reflect the amount of times a user has attempted to enter their password.
 PasswordTry=$((PasswordTry+1))
-ScriptLogging "This was user password change attempt $PasswordTry"
+ScriptLogging "This was user password validation attempt $PasswordTry"
 }
 
 successAlert () { # This notification function is not currently called but we'll keep it if we need to use it at some point.
 /bin/launchctl asuser $userUID /usr/bin/osascript -e "
 on run
-display dialog \"\" & return & \"Your password was successfully entered.\" with title \"$OrgName macOS $macOSVersion Upgrade\" buttons {\"Close\"} default button 1 with icon POSIX file \"$JAMFHelperIcon\"
+display dialog \"\" & return & \"Your password was successfully entered.\" with title \"$OrgName macOS $macOSVersion Upgrade\" buttons {\"Quit\"} default button 1 with icon POSIX file \"$JAMFHelperIcon\"
 end run"
 }
 
@@ -770,10 +772,10 @@ passwordFailureAlert () {
 ScriptLogging "User attempted to enter their password too many times."
 buttonPressed=$(/bin/launchctl asuser $userUID /usr/bin/osascript -e "
 on run
-display dialog \"ERROR VALIDATING PASSWORD\" & return & \" \" & return & \"$passwordFailMsg\" buttons {\"Close\"} default button 1 with title \"$OrgName macOS $macOSVersion Upgrade\" with icon POSIX file \"$JAMFHelperIcon\"
+display dialog \"ERROR VALIDATING PASSWORD\" & return & \" \" & return & \"$passwordFailMsg\" buttons {\"Quit\"} default button 1 with title \"$OrgName macOS $macOSVersion Upgrade\" with icon POSIX file \"$JAMFHelperIcon\"
 end run
 ")
-if [[ "$buttonPressed" == "button returned:Close" ]]
+if [[ "$buttonPressed" == "button returned:Quit" ]]
 then
 ScriptLogging "User closed the window"
 fi
@@ -783,10 +785,10 @@ displayVolumeOwners () {
 ## Notifies the current user of which other users can perform the macOS upgrade
 buttonPressed=$(/bin/launchctl asuser $userUID /usr/bin/osascript -e "
 on run
-display dialog \"The current user does not have permissions to upgrade to macOS $macOSVersion ($macOSName)\" & return & \" \" & return & \"Please login and run the update as one of the following users: ${VolumeOwnerUsers[@]}\" buttons {\"Close\"} default button 1 with title \"$OrgName macOS $macOSVersion Upgrade\" with icon POSIX file \"$JAMFHelperIcon\"
+display dialog \"The current user does not have permissions to upgrade to macOS $macOSVersion ($macOSName)\" & return & \" \" & return & \"Please login and run the update as one of the following users: ${VolumeOwnerUsers[@]}\" buttons {\"Quit\"} default button 1 with title \"$OrgName macOS $macOSVersion Upgrade\" with icon POSIX file \"$JAMFHelperIcon\"
 end run
 ")
-if [[ "$buttonPressed" == "button returned:Close" ]]
+if [[ "$buttonPressed" == "button returned:Quit" ]]
 then
 ScriptLogging "User closed the window"
 fi
@@ -796,10 +798,10 @@ noVolumeOwners () {
 ## Notifies the user that there is no user capable of performing the macOS Upgrade.
 buttonPressed=$(/bin/launchctl asuser $userUID /usr/bin/osascript -e "
 on run
-display dialog \"No users available to perform the upgrade.\" & return & \" \" & return & \"$passwordFailMsg\" buttons {\"Close\"} default button 1 with title \"$OrgName macOS $macOSVersion Upgrade\" with icon POSIX file \"$JAMFHelperIcon\"
+display dialog \"No users available to perform the upgrade.\" & return & \" \" & return & \"$passwordFailMsg\" buttons {\"Quit\"} default button 1 with title \"$OrgName macOS $macOSVersion Upgrade\" with icon POSIX file \"$JAMFHelperIcon\"
 end run
 ")
-if [[ "$buttonPressed" == "button returned:Close" ]]
+if [[ "$buttonPressed" == "button returned:Quit" ]]
 then
 ScriptLogging "User closed the window"
 fi
@@ -968,10 +970,13 @@ fi
 RebootMsg="Your computer will begin the upgrade
 process to mac $macOSName $macOSVersion
 in $Minutes mins.
+
 Please save all work and quit any open applications.
+
 Click Reboot to start this process immediately."
 
 FinalRebootMessage="Your computer will begin the upgrade in 1 minute.
+
 Please save all work and quit all applications now."
 
 "$JAMFHelperPath" -windowType utility -title "$JAMFHelperTitle" \
@@ -1029,7 +1034,7 @@ rm -r "$UpdateAttemptsFile"
 
 ## We'll add a JAMF Helper full screen window here because it looks nicer and is more restrictive than a progress bar.
 ## Since it will be a FS window we must remember to set it as a background process so the installer can actually run.
-## And if we happen to have an unpacked OS installer in the Applications folder we can use it's icon for the full screen window
+## And if we happen to have an unpacked OS installer in the Applications folder we can use its icon for the full screen window
 ## Capturing the Helper's PID here would be helpful if its to be quit by another other process outside of this script.
 ## JAMF Helper Variables
 if [[ -e "/Applications/Install macOS $macOSName.app" ]]
@@ -1037,10 +1042,13 @@ then
 JAMFHelperIcon="/Applications/Install macOS $macOSName.app/Contents/Resources/InstallAssistant.icns"
 fi
 
-FSheading="Please wait as we prepare your computer for the $macOSName $macOSVersion upgrade."
+FSheading="Please wait as we prepare your computer for the
+$macOSName $macOSVersion upgrade."
+
 FSdescription="
-This process will take approximately 5-10 minutes.
-Once completed your computer will reboot and begin the upgrade."
+This process will take approximately 10-15 minutes.
+Once completed your computer will reboot and begin the upgrade.
+The upgrade will then take approximately 60 minutes to complete."
 
 ## Launch jamfHelper
 "$JAMFHelperPath" -windowType fs -title "" -icon "$JAMFHelperIcon" -heading "$FSheading" -description "$FSdescription" &
