@@ -313,7 +313,7 @@ do
     else
       curl -s -H "$apiAuth" -X GET "$JamfClassicAPIURL/$ObjectType" -H "accept: application/json" | jq -r ".$ObjectTypeName[] | .name + \"_API_SEPARATOR_\" + (.id|tostring)" > "$TempFolder"/JSS_"$ObjectType".txt 2>/dev/null
     fi
-    ScriptLogging "Cleaning up and formatting JSON files for: $(echo $ObjectType | tr '[:lower:]' '[:upper:]')"
+    ScriptLogging "Cleaning up and formatting JSON files for: $(echo $ObjectTypeName | tr '[:lower:]' '[:upper:]')"
     while read row
     do
      ObjectName=$(echo "$row" | awk -F "_API_SEPARATOR_" '{gsub(/\//,"|");gsub(/\:/,"-"); print $1}')
@@ -355,7 +355,7 @@ do
          curl -s -H "$apiAuth" -H "accept: application/json" -X GET "$JamfClassicAPIURL/$ObjectType/id/$Objectid"  |  jq -r "$DownloadPath" > "$ObjectFolder"/"$ObjectType"_Contents_NotEncoded/"$ObjectName"-"$Objectid".sh
          elif [[ "$ContentWarningFlag" == "on" ]]
        then
-         ScriptLogging "$(echo $ObjectType | tr '[:lower:]' '[:upper:]') does not have separate content available for download."
+         ScriptLogging "$(echo $ObjectTypeName | tr '[:lower:]' '[:upper:]') does not have separate content available for download."
          ContentWarningFlag="off"
        fi
      fi
@@ -468,7 +468,7 @@ do
      curl -s -H "$apiAuth" -H "accept: text/xml"  "$JamfClassicAPIURL/$ObjectType" -X GET > "$TempFolder"/JSS_"$ObjectType".xml 2>/dev/null
 
      ## Apply the second XSLT template which deletes unnecessary objects in the XML
-     ScriptLogging "Cleaning up and formatting XML files for: $(echo $ObjectType | tr '[:lower:]' '[:upper:]')"
+     ScriptLogging "Cleaning up and formatting XML files for: $(echo $ObjectTypeName | tr '[:lower:]' '[:upper:]')"
      xsltproc "$BackupFolderTemp"/JSS_template.xslt "$TempFolder"/JSS_"$ObjectType".xml > "$TempFolder"/JSS_"$ObjectType".txt 2>/dev/null
 
      while read row
@@ -501,7 +501,7 @@ do
           curl -s -H "$apiAuth" -H "accept: text/xml" -X GET "$JamfClassicAPIURL/$ObjectType/id/$Objectid"  | xmllint --xpath "$DownloadPath" - > "$ObjectFolder"/"$ObjectType"_Contents_NotEncoded/"$ObjectName"-"$Objectid".sh
         elif [[ "$ContentWarningFlag" == "on" ]]
         then
-          ScriptLogging "$(echo $ObjectType | tr '[:lower:]' '[:upper:]') does not have separate content available for download."
+          ScriptLogging "$(echo $ObjectTypeName | tr '[:lower:]' '[:upper:]') does not have separate content available for download."
           ContentWarningFlag="off"
         fi
       fi
