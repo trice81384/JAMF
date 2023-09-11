@@ -170,6 +170,50 @@ ScriptLogging "Contents [CODE ONLY] Not selected for download."
 fi
 }
 
+checkDependencies(){
+
+dataType="$1"
+systemType=$(uname)
+archType=$(/usr/bin/arch)
+
+if [[ "$systemType" == "Darwin" ]] && [[ "$dataType" == "xml" ]]
+then
+  ScriptLogging "macOS Detected. XML Components installed natively."
+elif [[ "$systemType" == "Linux" ]] && [[ "$dataType" == "xml" ]]
+then
+  ScriptLogging "Linux Detected. Installing xml components if needed."
+  apt-get install libxml2
+elif [[ "$systemType" == "Darwin" ]] && [[ "$dataType" == "json" ]]
+then
+  ScriptLogging "macOS Detected. Checking for installed json tooling."
+  jq=$(which jq)
+  if [[ -z "$jq" ]] && [[ "$archType" == "arm64" ]]
+  then
+    ScriptLogging "JQ Not found. Installing ARM version into archive temp folder"
+    JQ_LATEST=$(curl -s https://api.github.com/repos/jqlang/jq/releases/latest | grep "browser_download_url.*macos-arm64" | awk {'print $2'})
+    JQ_LATEST=$(echo "$JQ_LATEST" | sed -e 's/^"//' -e 's/"$//')
+    curl -L -s "$JQ_LATEST" -o "$BackupFolderTemp"/jq
+    chmod 755 "$BackupFolderTemp"/jq
+    jq="$BackupFolderTemp"/jq
+  elif [[ -z "$jq" ]] && [[ "$archType" != "arm64" ]]
+  then
+    ScriptLogging "JQ Not found. Installing AMD version into archive temp folder"
+    JQ_LATEST=$(curl -s https://api.github.com/repos/jqlang/jq/releases/latest | grep "browser_download_url.*macos-amd64" | awk {'print $2'})
+    JQ_LATEST=$(echo "$JQ_LATEST" | sed -e 's/^"//' -e 's/"$//')
+    curl -L -s "$JQ_LATEST" -o "$BackupFolderTemp"/jq
+    chmod 755 "$BackupFolderTemp"/jq
+    jq="$BackupFolderTemp"/jq
+  elif [[ -n "$jq" ]]
+  then
+    ScriptLogging "Installation of jq found."
+  fi
+elif [[ "$systemType" == "Linux" ]] && [[ "$dataType" == "json" ]]
+then
+  ScriptLogging "Linux Detected. Installing json components if needed."
+  sudo apt-get install jq
+fi
+}
+
 ## Function to generate an auth token on those instances running 10.35 or higher
 makeAuthHeader(){
 local APIUser="$1"
@@ -308,10 +352,10 @@ do
     if [[ "$ObjectTypeName" == "accounts" ]]
     then
       curl -s -H "$apiAuth"  -X GET "$JamfClassicAPIURL/accounts" -H "accept: application/json" > "$TempFolder"/JSS_"$ObjectType"_TEMP.txt 2>/dev/null
-      jq -r ".accounts.users[] | .name + \"_API_SEPARATOR_\" + (.id|tostring) + \"_API_SEPARATOR_\" + \"userid\"" "$TempFolder"/JSS_"$ObjectType"_TEMP.txt > "$TempFolder"/JSS_"$ObjectType".txt 2>/dev/null
-      jq -r ".accounts.groups[] | .name + \"_API_SEPARATOR_\" + (.id|tostring) + \"_API_SEPARATOR_\" + \"groupid\"" "$TempFolder"/JSS_"$ObjectType"_TEMP.txt >> "$TempFolder"/JSS_"$ObjectType".txt 2>/dev/null
+      "$jq" -r ".accounts.users[] | .name + \"_API_SEPARATOR_\" + (.id|tostring) + \"_API_SEPARATOR_\" + \"userid\"" "$TempFolder"/JSS_"$ObjectType"_TEMP.txt > "$TempFolder"/JSS_"$ObjectType".txt 2>/dev/null
+      "$jq" -r ".accounts.groups[] | .name + \"_API_SEPARATOR_\" + (.id|tostring) + \"_API_SEPARATOR_\" + \"groupid\"" "$TempFolder"/JSS_"$ObjectType"_TEMP.txt >> "$TempFolder"/JSS_"$ObjectType".txt 2>/dev/null
     else
-      curl -s -H "$apiAuth" -X GET "$JamfClassicAPIURL/$ObjectType" -H "accept: application/json" | jq -r ".$ObjectTypeName[] | .name + \"_API_SEPARATOR_\" + (.id|tostring)" > "$TempFolder"/JSS_"$ObjectType".txt 2>/dev/null
+      curl -s -H "$apiAuth" -X GET "$JamfClassicAPIURL/$ObjectType" -H "accept: application/json" | "$jq" -r ".$ObjectTypeName[] | .name + \"_API_SEPARATOR_\" + (.id|tostring)" > "$TempFolder"/JSS_"$ObjectType".txt 2>/dev/null
     fi
     ScriptLogging "Cleaning up and formatting JSON files for: $(echo $ObjectTypeName | tr '[:lower:]' '[:upper:]')"
     while read row
@@ -323,14 +367,14 @@ do
      #https://www.ditig.com/jq-recipes
      if [[ "$ObjectTypeName" == "computer_groups" ]]
      then
-       curl -s -H "$apiAuth" -H "accept: application/json" -X GET "$JamfClassicAPIURL/$ObjectType/id/$Objectid" | jq '(.. | select(type == "object")) |= (if .is_smart|tostring == "true" then del(.computers[]) else . end) | del(..|nulls)' > "$TempFolder"/"$ObjectName"-"$Objectid".json 2>/dev/null
+       curl -s -H "$apiAuth" -H "accept: application/json" -X GET "$JamfClassicAPIURL/$ObjectType/id/$Objectid" | "$jq" '(.. | select(type == "object")) |= (if .is_smart|tostring == "true" then del(.computers[]) else . end) | del(..|nulls)' > "$TempFolder"/"$ObjectName"-"$Objectid".json 2>/dev/null
      elif [[ "$ObjectTypeName" == "advanced_computer_searches" ]]
      then
-       curl -s -H "$apiAuth" -H "accept: application/json" -X GET "$JamfClassicAPIURL/$ObjectType/id/$Objectid" | jq '(.. | select(type == "object")) |= (if .advanced_computer_search != "" then del(.computers) else . end) | del(..|nulls)' > "$TempFolder"/"$ObjectName"-"$Objectid".json 2>/dev/null
+       curl -s -H "$apiAuth" -H "accept: application/json" -X GET "$JamfClassicAPIURL/$ObjectType/id/$Objectid" | "$jq" '(.. | select(type == "object")) |= (if .advanced_computer_search != "" then del(.computers) else . end) | del(..|nulls)' > "$TempFolder"/"$ObjectName"-"$Objectid".json 2>/dev/null
      elif [[ "$ObjectTypeName" == "accounts" ]]
      then
        #Delete the id key value pair anywhere only from 3 places in the accounts json file so we preserve the id of the LDAP server if it exists. Also delete the hashed password from accounts
-       curl -s -H "$apiAuth" -H "accept: application/json" -X GET "$JamfClassicAPIURL/accounts/$AccountType/$Objectid" | jq 'del( .account.id, .group.id, .group.site.id, .account.password_sha256 )' > "$ObjectFolder"/"$ObjectName"-"$Objectid".json
+       curl -s -H "$apiAuth" -H "accept: application/json" -X GET "$JamfClassicAPIURL/accounts/$AccountType/$Objectid" | "$jq" 'del( .account.id, .group.id, .group.site.id, .account.password_sha256 )' > "$ObjectFolder"/"$ObjectName"-"$Objectid".json
      else
        curl -s -H "$apiAuth" -H "accept: application/json" -X GET "$JamfClassicAPIURL/$ObjectType/id/$Objectid" > "$TempFolder"/"$ObjectName"-"$Objectid".json 2>/dev/null
      fi
@@ -339,7 +383,7 @@ do
      if [[ "$ObjectTypeName" != "accounts" ]]
      then
        #Delete the id key value pair anywhere in the json file
-       jq '(.. | select(type == "object")) |= del (.id)' "$TempFolder"/"$ObjectName"-"$Objectid".json > "$ObjectFolder"/"$ObjectName"-"$Objectid".json
+       "$jq" '(.. | select(type == "object")) |= del (.id)' "$TempFolder"/"$ObjectName"-"$Objectid".json > "$ObjectFolder"/"$ObjectName"-"$Objectid".json
      fi
 
      ## Download just the code without the json data and store it separately. This could prob be cleaner.
@@ -348,11 +392,11 @@ do
        if [[ "$ObjectTypeName" == "computer_extension_attributes" ]]
        then 
          DownloadPath=".computer_extension_attribute.input_type.script"
-         curl -s -H "$apiAuth" -H "accept: application/json" -X GET "$JamfClassicAPIURL/$ObjectType/id/$Objectid"  |  jq -r "$DownloadPath" > "$ObjectFolder"/"$ObjectType"_Contents_NotEncoded/"$ObjectName"-"$Objectid".sh
+         curl -s -H "$apiAuth" -H "accept: application/json" -X GET "$JamfClassicAPIURL/$ObjectType/id/$Objectid"  |  "$jq" -r "$DownloadPath" > "$ObjectFolder"/"$ObjectType"_Contents_NotEncoded/"$ObjectName"-"$Objectid".sh
        elif [[ "$ObjectTypeName" == "scripts" ]]
        then
          DownloadPath=".script.script_contents"
-         curl -s -H "$apiAuth" -H "accept: application/json" -X GET "$JamfClassicAPIURL/$ObjectType/id/$Objectid"  |  jq -r "$DownloadPath" > "$ObjectFolder"/"$ObjectType"_Contents_NotEncoded/"$ObjectName"-"$Objectid".sh
+         curl -s -H "$apiAuth" -H "accept: application/json" -X GET "$JamfClassicAPIURL/$ObjectType/id/$Objectid"  |  "$jq" -r "$DownloadPath" > "$ObjectFolder"/"$ObjectType"_Contents_NotEncoded/"$ObjectName"-"$Objectid".sh
          elif [[ "$ContentWarningFlag" == "on" ]]
        then
          ScriptLogging "$(echo $ObjectTypeName | tr '[:lower:]' '[:upper:]') does not have separate content available for download."
@@ -598,6 +642,7 @@ while getopts "jxcah" opt; do
             exit 0
             fi
             getJamfInformation
+            checkDependencies json
             downloadJSONObjects
             ;;
         x)
@@ -613,6 +658,7 @@ while getopts "jxcah" opt; do
             exit 0
             fi 
             getJamfInformation
+            checkDependencies xml
             downloadXMLObjects
             ;;
         h)
